@@ -33,12 +33,22 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 def get_active_financials(name):
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
+        df.columns = ['ts', 'name', 'date', 'data', 'type', 'discount', 'overtime']
         df['name'] = df['name'].fillna("").str.strip()
+        df['type'] = df['type'].fillna("").str.strip()
+        
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
+        
         user_data = active_df[active_df['name'] == name]
+        
+        # --- تعديل الجوهري هنا ---
+        # نحسب الخصم فقط إذا لم يكن نوع العملية "طلب"
+        # يعني "طلب سلفة" لا يُحسب، فقط "سلفة مقبولة" أو "حضور" أو "غياب" تُحسب
+        valid_discounts = user_data[~user_data['type'].str.contains("طلب", na=False)]
+        
         return {
-            "discounts": int(pd.to_numeric(user_data['discount'], errors='coerce').fillna(0).sum()),
+            "discounts": int(pd.to_numeric(valid_discounts['discount'], errors='coerce').fillna(0).sum()),
             "overtime": int(pd.to_numeric(user_data['overtime'], errors='coerce').fillna(0).sum())
         }
     except:
@@ -84,6 +94,7 @@ if user_role == "موظف":
             val_req = st.number_input("المبلغ (للسلفة فقط)", min_value=0, step=5000)
             reason = st.text_input("السبب")
             if st.button("إرسال الطلب"):
+                # السطر المرسل هنا نوعه "طلب سلفة" لذا لن يُحسب في الراتب إلا بعد الموافقة
                 send_to_google(selected_name, c_date, reason, f"طلب {t_req}", val_req, 0)
                 st.warning("تم الإرسال للمدير")
 
@@ -94,9 +105,8 @@ elif user_role == "المدير":
         st.subheader("📩 طلبات معلقة")
         try:
             df_all = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-            # تحويل الأعمدة المالية لأرقام فوراً لتجنب خطأ القراءة
+            df_all.columns = ['ts', 'name', 'date', 'data', 'type', 'discount', 'overtime']
             df_all['discount'] = pd.to_numeric(df_all['discount'], errors='coerce').fillna(0)
-            df_all['overtime'] = pd.to_numeric(df_all['overtime'], errors='coerce').fillna(0)
             df_all['name'] = df_all['name'].fillna("").str.strip()
             
             res_idx = df_all[df_all['type'] == 'تصفية أسبوعية'].index
@@ -110,15 +120,16 @@ elif user_role == "المدير":
                         st.write(f"**السبب:** {row['data']}")
                         
                         if "سلفة" in row['type']:
-                            # عرض المبلغ بشكل آمن
                             amt = int(row['discount'])
                             st.write(f"**المبلغ المطلوب:** {amt:,} دينار")
                             c1, c2 = st.columns(2)
-                            if c1.button("✅ موافقة (خصم)", key=f"s_ok_{idx}"):
+                            if c1.button("✅ موافقة (تثبيت الخصم)", key=f"s_ok_{idx}"):
+                                # نرسل سطر جديد نوعه "سلفة مقبولة" (وهذا سيُحسب في الراتب)
                                 send_to_google(row['name'], f"موافقة سلفة: {row['data']}", "00:00", "سلفة مقبولة", amt, 0)
-                                st.success("تم الخصم"); time.sleep(1); st.rerun()
-                            if c2.button("❌ رفض", key=f"s_no_{idx}"):
-                                send_to_google(row['name'], "رفض سلفة", "00:00", "طلب مرفوض", 0, 0)
+                                st.success("تم تثبيت الخصم"); time.sleep(1); st.rerun()
+                            if c2.button("❌ رفض (إلغاء)", key=f"s_no_{idx}"):
+                                # نرسل سطر نوعه "رفض" ولن يُحسب أي شيء
+                                send_to_google(row['name'], "رفض سلفة", "00:00", "مرفوض", 0, 0)
                                 st.error("تم الرفض"); time.sleep(1); st.rerun()
                         
                         elif "إجازة" in row['type']:
@@ -128,21 +139,25 @@ elif user_role == "المدير":
                                 st.success("مقبولة"); time.sleep(1); st.rerun()
                             if col2.button("❌ رفض (خصم 15ألف)", key=f"v_no_{idx}"):
                                 send_to_google(row['name'], "رفض إجازة", "00:00", "غياب عقوبة", 15000, 0)
-                                st.error("تم الخصم"); time.sleep(1); st.rerun()
+                                st.error("تم الخصم كغياب"); time.sleep(1); st.rerun()
             else:
                 st.info("لا توجد طلبات.")
         except Exception as e:
-            st.error(f"خطأ في قراءة البيانات: تأكد من اتصال الإنترنت")
+            st.error(f"خطأ في قراءة البيانات")
 
         st.divider()
         if st.button("📊 عرض كشف الرواتب المُرتب"):
             df_all = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
+            df_all.columns = ['ts', 'name', 'date', 'data', 'type', 'discount', 'overtime']
             res_idx = df_all[df_all['type'] == 'تصفية أسبوعية'].index
             active_df = df_all.iloc[res_idx.max() + 1:] if not res_idx.empty else df_all
+            
             summary = []
             for name, info in STAFF_DATA.items():
                 u_df = active_df[active_df['name'] == name.strip()]
-                d = int(pd.to_numeric(u_df['discount'], errors='coerce').fillna(0).sum())
+                # نتجاهل الأسطر التي نوعها "طلب" عند حساب المجموع النهائي للمدير أيضاً
+                valid_u = u_df[~u_df['type'].str.contains("طلب", na=False)]
+                d = int(pd.to_numeric(valid_u['discount'], errors='coerce').fillna(0).sum())
                 o = int(pd.to_numeric(u_df['overtime'], errors='coerce').fillna(0).sum())
                 summary.append({"الموظف": name, "الراتب": info['salary'], "الخصم": d, "الإضافي": o, "الصافي": info['salary'] - d + o})
             st.table(pd.DataFrame(summary).sort_values(by="الصافي", ascending=False))
