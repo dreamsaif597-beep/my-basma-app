@@ -18,7 +18,6 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# --- الوظائف المساعدة ---
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
@@ -33,19 +32,14 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 
 def get_active_financials(name):
     try:
-        # إضافة t=time لمنع التخزين المؤقت (Cache) وضمان قراءة أحدث البيانات
         df = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
         df['name'] = df['name'].fillna("").astype(str).str.strip()
         df['type'] = df['type'].fillna("").astype(str).str.strip()
-        
-        # تحويل الخصم والإضافي لأرقام (هذا أهم سطر لظهور الكشف)
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0)
         
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
-        
-        # تجاهل الأسطر التي نوعها "طلب" لكي لا يظهر الخصم قبل موافقتك
         user_data = active_df[(active_df['name'] == name) & (~active_df['type'].str.contains("طلب", na=False))]
         
         return {
@@ -55,7 +49,6 @@ def get_active_financials(name):
     except:
         return {"discounts": 0, "overtime": 0}
 
-# --- واجهة التطبيق ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 user_role = st.sidebar.radio("دخول كـ:", ["موظف", "المدير"])
 
@@ -100,40 +93,13 @@ if user_role == "موظف":
                 st.warning("تم الإرسال للمدير")
 
 elif user_role == "المدير":
-    if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
+    entered_admin_pass = st.sidebar.text_input("رمز المدير:", type="password")
+    if entered_admin_pass == ADMIN_PASSWORD:
         st.header("👑 لوحة تحكم المدير")
 
         st.subheader("📩 طلبات معلقة")
         try:
             df_all = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-            # تنظيف البيانات فوراً
             df_all['type'] = df_all['type'].fillna("").astype(str)
             df_all['discount'] = pd.to_numeric(df_all['discount'], errors='coerce').fillna(0)
-            
-            # عرض الطلبات فقط (آخر 10 طلبات)
-            reqs = df_all[df_all['type'].str.contains("طلب", na=False)].tail(10)
-            
-            if not reqs.empty:
-                for idx, row in reqs[::-1].iterrows(): # عرض الأحدث أولاً
-                    with st.expander(f"📌 {row['type']} - {row['name']}"):
-                        st.write(f"**السبب:** {row['data']}")
-                        if "سلفة" in row['type']:
-                            st.write(f"**المبلغ المطلوب:** {int(row['discount']):,}")
-                            c1, c2 = st.columns(2)
-                            if c1.button("✅ موافقة", key=f"ok_{idx}"):
-                                send_to_google(row['name'], f"موافقة سلفة: {row['data']}", "00:00", "سلفة مقبولة", row['discount'], 0)
-                                st.success("تم الخصم"); time.sleep(1); st.rerun()
-                            if c2.button("❌ رفض", key=f"no_{idx}"):
-                                send_to_google(row['name'], "رفض سلفة", "00:00", "مرفوض", 0, 0)
-                                st.error("تم الرفض"); time.sleep(1); st.rerun()
-            else:
-                st.info("لا توجد طلبات.")
-        except:
-            st.error("عذراً، هناك مشكلة في الاتصال بالشيت")
-
-        st.divider()
-        if st.button("📊 عرض كشف الرواتب المُرتب"):
-            try:
-                df_rep = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-                df_rep['name'] = df_rep['name'].fillna("").astype(str).str.strip()
-                df_rep['discount'] = pd.to_numeric(df_rep['discount'], errors='coerce').fillna(0)
+            reqs = df_all[df_all['type'].str.contains
