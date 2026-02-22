@@ -18,12 +18,14 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# دالة تنظيف الأسماء
+# --- مخزن التاريخ للتصفير (لحل مشكلة التأخير) ---
+if "reset_timestamp" not in st.session_state:
+    st.session_state["reset_timestamp"] = datetime(2000, 1, 1)
+
 def clean_name(name):
     if pd.isna(name): return ""
     return str(name).strip().replace("أ", "ا").replace("إ", "ا")
 
-# دالة الإرسال إلى جوجل
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
@@ -33,110 +35,101 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
         "entry.1254543219": discount, 
         "entry.1151470082": overtime  
     }
-    try:
-        requests.post(FORM_URL, data=payload)
-    except:
-        st.error("فشل في الاتصال بجوجل")
+    try: requests.post(FORM_URL, data=payload, timeout=5)
+    except: pass
 
-# دالة حساب الخصومات
 def get_total_discounts(name):
     try:
-        # كسر الكاش لضمان تحديث البيانات من جوجل
-        t_url = f"{SHEET_CSV_URL}&cache={time.time()}"
-        df = pd.read_csv(t_url)
+        # إضافة time.time() لضمان عدم قراءة نسخة قديمة (Cache)
+        df = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
         df['data'] = pd.to_datetime(df['data']).dt.date
+        df['timestamp'] = pd.to_datetime(df['data'].astype(str) + ' ' + df['time'].astype(str))
         
-        # البحث عن آخر تصفية
+        # نأخذ التاريخ الأحدث بين (تاريخ آخر تصفية بالجدول) وبين (تاريخ ضغطة زر التصفير الحالية)
         resets = df[df['type'] == 'تصفية أسبوعية']
-        last_reset = resets['data'].max() if not resets.empty else datetime(2000,1,1).date()
+        if not resets.empty:
+            table_reset = pd.to_datetime(resets['timestamp']).max()
+        else:
+            table_reset = pd.to_datetime("2000-01-01")
+            
+        final_reset = max(table_reset, st.session_state["reset_timestamp"])
 
         target = clean_name(name)
-        mask = (df['name'].apply(clean_name) == target) & (df['data'] >= last_reset)
+        mask = (df['name'].apply(clean_name) == target) & (df['timestamp'] >= final_reset)
         return int(df.loc[mask, 'discount'].sum())
     except:
         return 0
 
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 
-user_role = st.sidebar.radio("الدخول كـ:", ["موظف", "المدير"])
+role = st.sidebar.radio("دخول كـ:", ["موظف", "المدير"])
 
 # --- واجهة الموظف ---
-if user_role == "موظف":
-    name = st.sidebar.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
-    pw = st.sidebar.text_input("الرمز السري:", type="password")
+if role == "موظف":
+    user_name = st.sidebar.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
+    password = st.sidebar.text_input("الرمز السري:", type="password")
 
-    if pw == STAFF_DATA[name]["pass"]:
-        st.header(f"👋 أهلاً {name}")
+    if password == STAFF_DATA[user_name]["pass"]:
+        st.header(f"👋 أهلاً {user_name}")
         
-        # الحساب المالي
-        weekly_sal = STAFF_DATA[name]['salary']
-        discounts = get_total_discounts(name)
+        discounts = get_total_discounts(user_name)
+        salary = STAFF_DATA[user_name]['salary']
         
-        c_m1, c_m2, c_m3 = st.columns(3)
-        c_m1.metric("الراتب الكلي", f"{weekly_sal:,}")
-        c_m2.metric("الخصومات", f"{discounts:,}")
-        c_m3.metric("الصافي", f"{weekly_sal - discounts:,}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("الراتب الكلي", f"{salary:,}")
+        c2.metric("الخصومات", f"{discounts:,}", delta_color="inverse")
+        c3.metric("صافي الخميس", f"{salary - discounts:,}")
         
         st.divider()
-        st.subheader("⏱️ البصمة")
         now = datetime.now()
-        curr_d, curr_t = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-
-        col_btn1, col_btn2 = st.columns(2)
-        if col_btn1.button("📥 تسجيل حضور"):
-            emp = STAFF_DATA[name]
-            start_t = emp['start'] if emp['type'] == 'single' else emp['s1']
-            d1 = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
-            d2 = datetime.strptime(start_t, "%H:%M")
-            diff = (d1 - d2).total_seconds() / 60
+        if st.button("📥 تسجيل حضور"):
+            start_t = STAFF_DATA[user_name]['start'] if STAFF_DATA[user_name]['type'] == 'single' else STAFF_DATA[user_name]['s1']
+            diff = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(start_t, "%H:%M")).total_seconds() / 60
             disc = int(diff * 200) if diff > 5 else 0
-            
-            send_to_google(name, curr_d, curr_t, "حضور", disc)
-            st.success(f"تم تسجيل الحضور. الخصم: {disc:,}")
+            send_to_google(user_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "حضور", disc)
+            st.success("تم تسجيل الحضور!")
             time.sleep(1)
             st.rerun()
 
-        if col_btn2.button("📤 تسجيل انصراف"):
-            send_to_google(name, curr_d, curr_t, "انصراف", 0)
-            st.info("تم تسجيل الانصراف بنجاح")
+        if st.button("📤 تسجيل انصراف"):
+            send_to_google(user_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "انصراف", 0)
+            st.info("تم تسجيل الانصراف.")
 
 # --- واجهة المدير ---
-elif user_role == "المدير":
+elif role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
         st.header("👑 لوحة المدير")
+        
+        # رابط الجدول
+        st.markdown(f"### [🔗 فتح جدول الردود الرئيسي](https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit#gid=1114343408)")
 
-        # 1. تسجيل غياب
-        st.subheader("🚫 تسجيل غياب يدوي")
-        abs_name = st.selectbox("الموظف الغائب:", list(STAFF_DATA.keys()))
-        if st.button("خصم غياب (15,000)"):
-            today = datetime.now().strftime("%Y-%m-%d")
-            send_to_google(abs_name, today, "00:00", "غياب", 15000)
-            st.error(f"تم خصم الغياب من {abs_name}")
+        # تسجيل غياب
+        st.subheader("🚫 تسجيل غياب")
+        absent_user = st.selectbox("الموظف الغائب:", list(STAFF_DATA.keys()))
+        if st.button("خصم 15,000 غياب"):
+            today = datetime.now()
+            send_to_google(absent_user, today.strftime("%Y-%m-%d"), today.strftime("%H:%M:%S"), "غياب", 15000)
+            st.error(f"تم الخصم من {absent_user}")
             time.sleep(1)
             st.rerun()
 
         st.divider()
-
-        # 2. كشف الرواتب والترتيب
-        st.subheader("📊 كشف رواتب الخميس")
-        if st.button("عرض وترتيب الرواتب"):
-            sal_list = []
+        # عرض الكشف
+        st.subheader("📊 كشف الرواتب (يوم الخميس)")
+        if st.button("تحديث وعرض الجدول"):
+            data_rows = []
             for n, d in STAFF_DATA.items():
                 disc = get_total_discounts(n)
-                sal_list.append({"الموظف": n, "الراتب": d['salary'], "الخصم": disc, "الصافي": d['salary'] - disc})
-            
-            df_final = pd.DataFrame(sal_list).sort_values(by="الصافي", ascending=False)
-            st.table(df_final)
+                data_rows.append({"الموظف": n, "الراتب": d['salary'], "الخصومات": disc, "الصافي": d['salary'] - disc})
+            st.table(pd.DataFrame(data_rows).sort_values(by="الصافي", ascending=False))
 
         st.divider()
-
-        # 3. التصفير
-        st.subheader("🔄 تصفير الأسبوع")
-        if st.button("تصفير وبدء أسبوع جديد للجميع"):
-            today = datetime.now().strftime("%Y-%m-%d")
-            # إرسال سطر التصفية
-            send_to_google("نظام", today, "00:00", "تصفية أسبوعية", 0)
+        # التصفير
+        if st.button("🔄 تصفير الأسبوع بالكامل"):
+            now = datetime.now()
+            st.session_state["reset_timestamp"] = now # تصفير فوري في التطبيق
+            send_to_google("النظام", now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "تصفية أسبوعية", 0)
             st.balloons()
-            st.success("تم إرسال أمر التصفير. انتظر 5 ثوانٍ للتحديث...")
-            time.sleep(2)
+            st.success("تم التصفير! جميع الحسابات أصبحت صفر الآن.")
+            time.sleep(1)
             st.rerun()
