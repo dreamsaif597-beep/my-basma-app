@@ -21,7 +21,7 @@ mode = st.sidebar.radio("نوع الحساب:", ["موظف", "المدير"])
 
 if mode == "موظف":
     name = st.sidebar.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
-    password = st.sidebar.text_input("الرمز السري الخاص بك:", type="password")
+    password = st.sidebar.text_input("الرمز السري الخاص بك:", type="1122")
     
     if password == STAFF_DATA[name]["pass"]:
         st.header(f"👋 أهلاً {name}")
@@ -77,3 +77,4 @@ elif mode == "المدير":
             st.success("تم تصفير العداد للأسبوع الجديد!")
     elif p != "":
         st.error("رمز المدير غير صحيح!")
+
