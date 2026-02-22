@@ -33,10 +33,11 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 
 def get_active_financials(name):
     try:
-        df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
+        # إضافة nocache لضمان جلب أحدث البيانات
+        df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df['name'] = df['name'].str.strip()
         
-        # تحويل الأعمدة المالية لأرقام (هذا التعديل يحل مشكلة عدم ظهور الخصم)
+        # --- التعديل الجوهري: تحويل القيم لأرقام لضمان ظهور الخصم ---
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0)
         
@@ -63,55 +64,14 @@ if user_role == "موظف":
         st.header(f"👋 أهلاً {selected_name}")
         fin = get_active_financials(selected_name)
         weekly_salary = STAFF_DATA[selected_name]['salary']
-        net_salary = weekly_salary - fin['discounts'] + fin['overtime']
         
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("الراتب الأسبوعي", f"{weekly_salary:,}")
         col_m2.metric("إجمالي الخصم", f"{fin['discounts']:,}")
-        col_m3.metric("الصافي الحالي", f"{net_salary:,}")
+        col_m3.metric("الصافي الحالي", f"{weekly_salary - fin['discounts'] + fin['overtime']:,}")
         
         st.divider()
         now = datetime.now()
         c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
 
-        c1, c2 = st.columns(2)
-        if c1.button("📥 تسجيل حضور"):
-            emp = STAFF_DATA[selected_name]
-            official_start = emp['start'] if emp['type'] == 'single' else emp['s1']
-            diff = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(official_start, "%H:%M")).total_seconds() / 60
-            discount = int(diff * 200) if diff > 5 else 0
-            send_to_google(selected_name, c_date, c_time, "حضور", discount, 0)
-            st.success(f"تم الحضور. الخصم: {discount:,}"); time.sleep(1); st.rerun()
-
-        if c2.button("📤 تسجيل انصراف"):
-            send_to_google(selected_name, c_date, c_time, "انصراف", 0, 0)
-            st.info("تم الانصراف بنجاح")
-
-        st.divider()
-        with st.expander("📝 طلب إجازة أو سلفة"):
-            t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
-            val_req = st.number_input("المبلغ (للسلفة فقط)", min_value=0, step=5000)
-            reason = st.text_input("السبب")
-            if st.button("إرسال الطلب"):
-                send_to_google(selected_name, c_date, reason, f"طلب {t_req}", val_req, 0)
-                st.warning("تم الإرسال للمدير")
-
-elif user_role == "المدير":
-    if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
-        st.header("👑 لوحة تحكم المدير")
-        
-        st.subheader("📩 طلبات معلقة")
-        try:
-            df_req = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-            reqs = df_req[df_req['type'].str.contains("طلب", na=False)].tail(5)
-            if not reqs.empty:
-                st.write(reqs[['name', 'data', 'type', 'discount']])
-            else:
-                st.write("لا توجد طلبات جديدة.")
-        except:
-            pass
-        
-        st.divider()
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.subheader("➕ إضافة أوفر
+        c1, c2
