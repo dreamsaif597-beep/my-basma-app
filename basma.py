@@ -43,19 +43,23 @@ def fetch_and_clean_data():
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
         
-        active_df = active_df[~active_df['type'].str.contains("طلب|مؤرشف", na=False)]
+        # لا نحذف "طلب" هنا لأننا قد نحتاج عرض الطلبات المقبولة للموظف
         return active_df
     except:
         return pd.DataFrame()
 
 def get_active_financials(name):
     df = fetch_and_clean_data()
-    if df.empty: return {"discounts": 0, "overtime": 0}
+    if df.empty: return {"discounts": 0, "overtime": 0, "history": pd.DataFrame()}
     
-    user_data = df[df['name'] == name]
+    # استثناء الطلبات غير المؤرشفة من الحساب المالي
+    clean_df = df[~df['type'].str.contains("طلب|مؤرشف", na=False)]
+    user_data = clean_df[clean_df['name'] == name]
+    
     return {
         "discounts": int(user_data['discount'].sum()),
-        "overtime": int(user_data['overtime'].sum())
+        "overtime": int(user_data['overtime'].sum()),
+        "history": user_data # نرجع التاريخ المالي للموظف
     }
 
 # --- واجهة التطبيق ---
@@ -77,6 +81,16 @@ if user_role == "موظف":
         col_m2.metric("إجمالي الخصم", f"{fin['discounts']:,}")
         col_m3.metric("الصافي الحالي", f"{net_salary:,}")
         
+        # --- قسم كشف الحساب التفصيلي للموظف ---
+        with st.expander("📊 كشف حسابي التفصيلي (الغياب، المكافآت، الخصومات)"):
+            if not fin['history'].empty:
+                # تصفية الجدول ليظهر الأشياء المهمة فقط
+                display_df = fin['history'][['data', 'type', 'discount', 'overtime']].copy()
+                display_df.columns = ["التاريخ/التفاصيل", "النوع", "خصم (-)", "إضافة (+)"]
+                st.dataframe(display_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد حركات مالية مسجلة لك هذا الأسبوع.")
+
         st.divider()
         now = datetime.now()
         c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
@@ -88,7 +102,7 @@ if user_role == "موظف":
             diff = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(off_start, "%H:%M")).total_seconds() / 60
             discount = int(diff * 200) if diff > 5 else 0
             send_to_google(selected_name, c_date, c_time, "حضور", discount, 0)
-            st.success(f"تم تسجيل الحضور. الخصم: {discount:,}"); time.sleep(1); st.rerun()
+            st.success(f"تم التسجيل. الخصم: {discount:,}"); time.sleep(1); st.cache_data.clear(); st.rerun()
 
         if c2.button("📤 تسجيل انصراف"):
             emp = STAFF_DATA[selected_name]
@@ -97,9 +111,8 @@ if user_role == "موظف":
             time_end = datetime.strptime(off_end, "%H:%M")
             diff_overtime = (time_now - time_end).total_seconds() / 60
             ov_amount = int(diff_overtime * 100) if diff_overtime > 1 else 0
-            
             send_to_google(selected_name, c_date, c_time, "انصراف", 0, ov_amount)
-            st.info(f"تم تسجيل الانصراف. الإضافي: {ov_amount:,}"); time.sleep(1); st.rerun()
+            st.info(f"تم الانصراف. الإضافي: {ov_amount:,}"); time.sleep(1); st.cache_data.clear(); st.rerun()
 
         st.divider()
         with st.expander("📝 طلب إجازة أو سلفة"):
@@ -114,7 +127,7 @@ if user_role == "موظف":
 elif user_role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
         st.header("👑 لوحة تحكم المدير")
-
+        # (قسم المدير يبقى كما هو بدون تغيير في المنطق لضمان الاستقرار)
         st.subheader("📩 طلبات معلقة")
         try:
             df_raw = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
@@ -136,33 +149,31 @@ elif user_role == "المدير":
                         if c2.button("❌ رفض", key=f"no_{idx}"):
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
                             st.error("تم الرفض"); time.sleep(1); st.rerun()
-            else:
-                st.info("لا توجد طلبات.")
+            else: st.info("لا توجد طلبات.")
         except: pass
 
         st.divider()
         col_a, col_b = st.columns(2)
         with col_a:
-            st.subheader("➕ إضافة أوفر تايم يدوي")
+            st.subheader("➕ إضافة مكافأة يدوي")
             emp_ov = st.selectbox("الموظف:", list(STAFF_DATA.keys()), key="ov")
             amt_ov = st.number_input("المبلغ:", min_value=0, step=1000)
             if st.button("إضافة المكافأة"):
                 send_to_google(emp_ov, datetime.now().strftime("%Y-%m-%d"), "مكافأة", "أوفر تايم", 0, amt_ov)
-                st.cache_data.clear() # تفريغ الكاش لتحديث الكشف فوراً
-                st.success("تمت الإضافة"); time.sleep(1); st.rerun()
+                st.cache_data.clear(); st.success("تمت الإضافة"); time.sleep(1); st.rerun()
         
         with col_b:
             st.subheader("🚫 تسجيل غياب")
             emp_ab = st.selectbox("الموظف:", list(STAFF_DATA.keys()), key="ab")
             if st.button("خصم غياب (15,000)"):
                 send_to_google(emp_ab, datetime.now().strftime("%Y-%m-%d"), "غياب", "غياب", 15000, 0)
-                st.cache_data.clear() # تفريغ الكاش لتحديث الكشف فوراً
-                st.error("تم الخصم"); time.sleep(1); st.rerun()
+                st.cache_data.clear(); st.error("تم الخصم"); time.sleep(1); st.rerun()
 
         st.divider()
-        if st.button("📊 عرض كشف الرواتب المُرتب (سريع)"):
+        if st.button("📊 عرض كشف الرواتب المُرتب"):
             active_df = fetch_and_clean_data()
-            totals = active_df.groupby('name')[['discount', 'overtime']].sum()
+            clean_df = active_df[~active_df['type'].str.contains("طلب|مؤرشف", na=False)]
+            totals = clean_df.groupby('name')[['discount', 'overtime']].sum()
             summary = []
             for name, info in STAFF_DATA.items():
                 disc = int(totals.loc[name, 'discount']) if name in totals.index else 0
@@ -173,5 +184,4 @@ elif user_role == "المدير":
         st.divider()
         if st.button("🔄 تصفير الأسبوع"):
             send_to_google("نظام_تصفير", datetime.now().strftime("%Y-%m-%d"), "00:00", "تصفية أسبوعية", 0, 0)
-            st.cache_data.clear() # أهم سطر: يجبر البرنامج يقرأ التصفير فوراً
-            st.balloons(); time.sleep(1); st.rerun()
+            st.cache_data.clear(); st.balloons(); time.sleep(1); st.rerun()
