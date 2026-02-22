@@ -42,7 +42,6 @@ def get_active_financials(name):
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
         
-        # تصفية أي سطر يحتوي كلمة "طلب" أو "مؤرشف" من حسابات الراتب
         user_data = active_df[(active_df['name'] == name) & 
                              (~active_df['type'].str.contains("طلب|مؤرشف", na=False))]
         
@@ -95,26 +94,34 @@ if user_role == "موظف":
             val_req = st.number_input("المبلغ (للسلفة فقط)", min_value=0, step=5000)
             reason = st.text_input("السبب")
             if st.button("إرسال الطلب"):
-                # نرسل الوقت الحالي في خانة "data" لضمان فرادة الطلب عند الأرشفة
-                unique_id = f"{reason} ({now.strftime('%H:%M:%S')})"
-                send_to_google(selected_name, unique_id, c_date, f"طلب {t_req}", val_req, 0)
-                st.warning("تم الإرسال للمدير")
+                # --- منع التكرار ---
+                try:
+                    df_check = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
+                    df_check.columns = [c.strip() for c in df_check.columns]
+                    # البحث عن طلبات معلقة لنفس الموظف ونفس النوع
+                    existing_reqs = df_check[(df_check['name'] == selected_name) & (df_check['type'] == f"طلب {t_req}")]
+                    archived_ids = df_check[df_check['type'] == "مؤرشف"]['data'].tolist()
+                    is_pending = any(req_data not in archived_ids for req_data in existing_reqs['data'])
+                    
+                    if is_pending:
+                        st.error(f"يوجد طلب {t_req} سابق لم يتم الرد عليه بعد!")
+                    else:
+                        unique_id = f"{reason} ({now.strftime('%H:%M:%S')})"
+                        send_to_google(selected_name, unique_id, c_date, f"طلب {t_req}", val_req, 0)
+                        st.warning("تم الإرسال للمدير")
+                except:
+                    st.error("خطأ في الاتصال، حاول ثانية.")
 
 elif user_role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
         st.header("👑 لوحة تحكم المدير")
 
-        # --- قسم الطلبات المعلقة الجديد ---
         st.subheader("📩 طلبات معلقة")
         try:
             df_raw = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
             df_raw.columns = [c.strip() for c in df_raw.columns]
-            
-            # الطلبات فقط
             reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
-            # المؤرشفة
             archived = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
-            # تصفية الطلبات التي لم تُؤرشف بعد
             pending = reqs[~reqs['data'].isin(archived)]
 
             if not pending.empty:
@@ -128,14 +135,15 @@ elif user_role == "المدير":
                         st.write(f"**التفاصيل:** {row['data']}")
                         c1, c2, c3 = st.columns(3)
                         if c1.button("✅ موافقة", key=f"ok_{idx}"):
-                            if "سلفة" in row['type']:
+                            if "سلفة" in str(row['type']):
                                 send_to_google(row['name'], f"موافقة سلفة: {row['data']}", "00:00", "سلفة مقبولة", row['discount'], 0)
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
                             st.success("تمت العملية"); time.sleep(1); st.rerun()
                         
                         if c2.button("❌ رفض", key=f"no_{idx}"):
+                            # تعديل: الرفض الآن يحذف الطلب تلقائياً عن طريق أرشفته
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
-                            st.error("تم الرفض"); time.sleep(1); st.rerun()
+                            st.error("تم الرفض وحذف الطلب"); time.sleep(1); st.rerun()
 
                         if c3.button("👁️ إخفاء", key=f"hi_{idx}"):
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
@@ -173,7 +181,6 @@ elif user_role == "المدير":
             
             summary = []
             for name, info in STAFF_DATA.items():
-                # هنا الحسابات تعتمد على استثناء كلمة "طلب" و "مؤرشف" فقط
                 u_df = active_df[(active_df['name'] == name.strip()) & 
                                  (~active_df['type'].str.contains("طلب|مؤرشف", na=False))]
                 disc = int(u_df['discount'].sum())
