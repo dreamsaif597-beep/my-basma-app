@@ -22,37 +22,35 @@ def clean_name(name):
     if pd.isna(name): return ""
     return str(name).strip().replace("أ", "ا").replace("إ", "ا")
 
-def send_to_google(name, data_val, time_val, type_val, discount=0):
+def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
         "entry.786801446": data_val,  
         "entry.2093200411": time_val, 
         "entry.1043553703": type_val, 
-        "entry.1254543219": discount
+        "entry.1254543219": discount,
+        "entry.1151470082": overtime
     }
     try: requests.post(FORM_URL, data=payload, timeout=5)
     except: pass
 
-def get_total_discounts(name):
+def get_active_data():
     try:
-        # كسر الكاش لجلب البيانات الحية
         df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
-        
-        # إيجاد سطر آخر تصفية أسبوعية
         reset_indices = df[df['type'] == 'تصفية أسبوعية'].index
-        if not reset_indices.empty:
-            last_reset_index = reset_indices.max()
-            # فلترة الجدول لأخذ البيانات التي جاءت بعد سطر التصفية فقط
-            df_active = df.iloc[last_reset_index + 1:]
-        else:
-            df_active = df
-
-        target = clean_name(name)
-        # حساب مجموع الخصومات للموظف من البيانات النشطة فقط
-        total = df_active[df_active['name'].apply(clean_name) == target]['discount'].sum()
-        return int(total)
+        return df.iloc[reset_indices.max() + 1:] if not reset_indices.empty else df
     except:
-        return 0
+        return pd.DataFrame()
+
+def get_staff_financials(name):
+    df_active = get_active_data()
+    if df_active.empty: return {"discounts": 0, "overtime": 0}
+    target = clean_name(name)
+    user_df = df_active[df_active['name'].apply(clean_name) == target]
+    return {
+        "discounts": int(user_df['discount'].sum()),
+        "overtime": int(user_df['overtime'].sum())
+    }
 
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 role = st.sidebar.radio("دخول كـ:", ["موظف", "المدير"])
@@ -63,71 +61,82 @@ if role == "موظف":
 
     if u_pass == STAFF_DATA[u_name]["pass"]:
         st.header(f"👋 أهلاً {u_name}")
-        dis = get_total_discounts(u_name)
+        fin = get_staff_financials(u_name)
         sal = STAFF_DATA[u_name]['salary']
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("الراتب الأسبوعي", f"{sal:,} د.ع")
-        c2.metric("خصومات الأسبوع", f"{dis:,} د.ع")
-        c3.metric("الصافي (الخميس)", f"{sal - dis:,} د.ع")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("الراتب", f"{sal:,}")
+        col2.metric("الخصومات", f"{fin['discounts']:,}")
+        col3.metric("الصافي", f"{sal - fin['discounts']:,}")
         
         st.divider()
+        # قسم البصمة
+        c_btn1, c_btn2 = st.columns(2)
         now = datetime.now()
-        if st.button("📥 تسجيل حضور"):
+        if c_btn1.button("📥 تسجيل حضور"):
             emp = STAFF_DATA[u_name]
-            start_t = emp['start'] if emp['type'] == 'single' else emp['s1']
-            d1 = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
-            d2 = datetime.strptime(start_t, "%H:%M")
-            diff = (d1 - d2).total_seconds() / 60
+            st_t = emp['start'] if emp['type'] == 'single' else emp['s1']
+            diff = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(st_t, "%H:%M")).total_seconds() / 60
             disc = int(diff * 200) if diff > 5 else 0
-            
-            send_to_google(u_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "حضور", disc)
-            st.success(f"تم التسجيل! الخصم: {disc:,}")
-            time.sleep(2)
-            st.rerun()
+            send_to_google(u_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "حضور", disc, 0)
+            st.success("تم الحضور"); time.sleep(1); st.rerun()
 
-        if st.button("📤 تسجيل انصراف"):
-            send_to_google(u_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "انصراف", 0)
-            st.info("تم تسجيل الانصراف.")
+        if c_btn2.button("📤 تسجيل انصراف"):
+            send_to_google(u_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "انصراف", 0, 0)
+            st.info("تم الانصراف")
+
+        st.divider()
+        # قسم الطلبات
+        st.subheader("📝 تقديم طلب")
+        req_type = st.selectbox("نوع الطلب:", ["إجازة", "سلفة"])
+        req_val = st.number_input("المبلغ (إذا كان سلفة):", min_value=0, step=1000) if req_type == "سلفة" else 0
+        req_note = st.text_input("السبب / ملاحظات:")
+        
+        if st.button("إرسال الطلب"):
+            send_to_google(u_name, now.strftime("%Y-%m-%d"), req_note, f"طلب {req_type}", req_val, 0)
+            st.warning("تم إرسال الطلب.. بانتظار موافقة المدير")
 
 elif role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
         st.header("👑 لوحة المدير")
-        st.markdown("[🔗 فتح الجدول الرئيسي](https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit#gid=1114343408)")
-
-        # غياب
-        abs_u = st.selectbox("الموظف الغائب:", list(STAFF_DATA.keys()))
-        if st.button("خصم 15,000 غياب"):
-            today = datetime.now()
-            send_to_google(abs_u, today.strftime("%Y-%m-%d"), today.strftime("%H:%M:%S"), "غياب", 15000)
-            st.error(f"تم خصم غياب من {abs_u}")
-            time.sleep(2)
-            st.rerun()
+        
+        # 1. إدارة الطلبات (إجازات وسلف)
+        st.subheader("📩 طلبات الموظفين المعلقة")
+        df_active = get_active_data()
+        if not df_active.empty:
+            pending = df_active[df_active['type'].str.contains("طلب", na=False)]
+            if not pending.empty:
+                for idx, row in pending.iterrows():
+                    with st.expander(f"طلب من {row['name']} - {row['type']}"):
+                        st.write(f"الملاحظات: {row['data']}")
+                        if "سلفة" in row['type']: st.write(f"المبلغ المطلوب: {row['discount']:,}")
+                        
+                        cb1, cb2 = st.columns(2)
+                        if cb1.button("✅ موافقة", key=f"ok_{idx}"):
+                            # إذا سلفة ينزل الخصم، إذا إجازة يسجلها كـ "إجازة مقبولة" بدون خصم
+                            type_label = "سلفة مقبولة" if "سلفة" in row['type'] else "إجازة مقبولة"
+                            disc_val = row['discount'] if "سلفة" in row['type'] else 0
+                            send_to_google(row['name'], datetime.now().strftime("%Y-%m-%d"), "تمت الموافقة", type_label, disc_val, 0)
+                            st.success("تمت الموافقة"); time.sleep(1); st.rerun()
+                            
+                        if cb2.button("❌ رفض", key=f"no_{idx}"):
+                            # إذا رفض إجازة يخصم 15000
+                            disc_val = 15000 if "إجازة" in row['type'] else 0
+                            send_to_google(row['name'], datetime.now().strftime("%Y-%m-%d"), "تم الرفض", "طلب مرفوض", disc_val, 0)
+                            st.error("تم الرفض"); time.sleep(1); st.rerun()
+            else: st.write("لا توجد طلبات جديدة")
 
         st.divider()
-        # كشف الخميس المرتّب
-        st.subheader("🗓️ كشف رواتب يوم الخميس")
-        if st.button("📊 عرض وترتيب الرواتب"):
+        # 2. كشف الرواتب
+        if st.button("📊 عرض كشف الرواتب النهائي"):
             rows = []
             for n, d in STAFF_DATA.items():
-                disc = get_total_discounts(n)
-                rows.append({
-                    "الموظف": n, 
-                    "الراتب الثابت": f"{d['salary']:,}", 
-                    "الخصومات": f"{disc:,}", 
-                    "الصافي": d['salary'] - disc
-                })
-            df_res = pd.DataFrame(rows).sort_values(by="الصافي", ascending=False)
-            df_res["الصافي"] = df_res["الصافي"].apply(lambda x: f"{x:,} د.ع")
-            st.table(df_res)
+                fin = get_staff_financials(n)
+                rows.append({"الموظف": n, "الراتب": d['salary'], "الخصم": fin['discounts'], "إضافي": fin['overtime'], "الصافي": d['salary'] - fin['discounts'] + fin['overtime']})
+            st.table(pd.DataFrame(rows).sort_values(by="الصافي", ascending=False))
 
         st.divider()
-        # التصفير
-        if st.button("🔄 تصفير الأسبوع (بدء من جديد)"):
-            today = datetime.now()
-            # إرسال علامة التصفية للجدول
-            send_to_google("نظام_تصفير", today.strftime("%Y-%m-%d"), today.strftime("%H:%M:%S"), "تصفية أسبوعية", 0)
-            st.balloons()
-            st.success("تم التصفير! سيتم تجاهل كل الخصومات السابقة الآن.")
-            time.sleep(2)
-            st.rerun()
+        # 3. تصفير
+        if st.button("🔄 تصفير الأسبوع"):
+            send_to_google("نظام", datetime.now().strftime("%Y-%m-%d"), "00:00", "تصفية أسبوعية", 0, 0)
+            st.balloons(); st.success("صفرت!"); time.sleep(1); st.rerun()
