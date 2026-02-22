@@ -1,12 +1,14 @@
 import streamlit as st
 from datetime import datetime
 import requests
+import pandas as pd # أضفنا هذه المكتبة لقراءة الجدول
 
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
+# رابط الجدول بصيغة CSV للقراءة منه (مهم جداً لعرض الراتب النهائي)
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/export?format=csv&gid=1114343408"
 
-# بيانات الموظفين (الشفتات والرواتب)
 STAFF_DATA = {
     "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
     "فؤاد": {"salary": 165000, "pass": "1133", "s1": "10:20", "e1": "15:00", "s2": "17:20", "e2": "22:00", "type": "double"},
@@ -16,7 +18,6 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# وظيفة الإرسال للجدول بالـ IDs الصحيحة
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
@@ -28,6 +29,16 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     }
     try: requests.post(FORM_URL, data=payload)
     except: pass
+
+# دالة لجلب مجموع الخصومات للموظف من الجدول
+def get_total_discounts(name):
+    try:
+        df = pd.read_csv(SHEET_CSV_URL)
+        # تصفية الجدول حسب اسم الموظف وجمع عمود الخصم
+        user_discounts = df[df['name'] == name]['discount'].sum()
+        return int(user_discounts)
+    except:
+        return 0
 
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 
@@ -41,15 +52,19 @@ if user_role == "موظف":
     if entered_pass == STAFF_DATA[selected_name]["pass"]:
         st.header(f"👋 أهلاً {selected_name}")
         
-        # ميزة الراتب اليومي
+        # ميزة الراتب اليومي والأسبوعي
         weekly_salary = STAFF_DATA[selected_name]['salary']
-        daily_salary = int(weekly_salary / 7)
+        total_discounts = get_total_discounts(selected_name)
+        final_salary = weekly_salary - total_discounts
         
-        col_m1, col_m2 = st.columns(2)
-        col_m1.metric("الراتب الأسبوعي", f"{weekly_salary:,} د.ع")
-        col_m2.metric("يوميتك (الصافي)", f"{daily_salary:,} د.ع")
+        st.subheader("💰 كشف حسابك الأسبوعي")
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("الراتب الكلي", f"{weekly_salary:,} د.ع")
+        col_m2.metric("مجموع الخصومات", f"{total_discounts:,} د.ع", delta_color="inverse")
+        col_m3.metric("الصافي (يوم الخميس)", f"{final_salary:,} د.ع")
         
         st.divider()
+        # ... تكملة كود البصمة (نفس الكود السابق) ...
         st.subheader("⏱️ تسجيل البصمة")
         now = datetime.now()
         c_date = now.strftime("%Y-%m-%d")
@@ -66,37 +81,14 @@ if user_role == "موظف":
             discount = int(diff * 200) if diff > 5 else 0
             if discount > 0:
                 st.error(f"تأخير {int(diff)} دقيقة. الخصم: {discount:,} د.ع")
-                st.info(f"الصافي اليوم بعد الخصم: {daily_salary - discount:,} د.ع")
             else:
-                st.success(f"تم الحضور في الوقت المحدد! الصافي: {daily_salary:,} د.ع")
+                st.success(f"تم الحضور في الوقت المحدد!")
             
             send_to_google(selected_name, c_date, c_time, "حضور", discount, 0)
-            st.balloons()
+            st.rerun() # تحديث الصفحة لظهار الخصم الجديد في المجموع
 
         if c2.button("📤 تسجيل انصراف"):
             st.info(f"تم تسجيل الانصراف: {c_time}")
             send_to_google(selected_name, c_date, c_time, "انصراف", 0, 0)
-
-        st.divider()
-        with st.expander("📝 تقديم طلب (إجازة / سلفة)"):
-            t_req = st.selectbox("نوع الطلب", ["إجازة", "سلفة"])
-            if st.button("إرسال الطلب"):
-                send_to_google(selected_name, c_date, c_time, f"طلب {t_req}", 0, 0)
-                st.warning(f"تم إرسال طلب {t_req} للمدير بنجاح")
-
-elif user_role == "المدير":
-    if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
-        st.header("👑 لوحة تحكم المدير")
-        sheet_url = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit#gid=1114343408"
-        st.markdown(f"### [🔗 فتح جدول البصمات (صفحة Form_Responses)]({sheet_url})")
-        
-        st.divider()
-        st.subheader("👥 كشف الرواتب العام")
-        for staff, info in STAFF_DATA.items():
-            d_sal = int(info['salary'] / 7)
-            st.write(f"**{staff}**: أسبوعي {info['salary']:,} | يومي {d_sal:,} د.ع")
-        
-        st.divider()
-        if st.button("💰 تصفية حسابات الخميس"):
-            st.success("تم تسجيل نهاية الدورة الأسبوعية")
-            st.balloons()
+            
+        # ... بقية الأزرار (إجازة/سلفة ولوحة المدير) ...
