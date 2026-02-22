@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 import time
 
-# --- الإعدادات الأساسية (نفس كودك) ---
+# --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
@@ -18,7 +18,7 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# --- الوظائف المساعدة (نفس كودك) ---
+# --- الوظائف المساعدة ---
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
@@ -35,9 +35,15 @@ def get_active_financials(name):
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
         df['name'] = df['name'].str.strip()
+        
+        # تحويل الأعمدة المالية لأرقام (هذا التعديل يحل مشكلة عدم ظهور الخصم)
+        df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0)
+        df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0)
+        
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
         user_data = active_df[active_df['name'] == name]
+        
         return {
             "discounts": int(user_data['discount'].sum()),
             "overtime": int(user_data['overtime'].sum())
@@ -93,12 +99,10 @@ if user_role == "موظف":
 elif user_role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
         st.header("👑 لوحة تحكم المدير")
-
-        # --- قسم الطلبات (أضفته لك ببساطة تامة ليعمل مع كودك) ---
+        
         st.subheader("📩 طلبات معلقة")
         try:
             df_req = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-            # عرض آخر 5 طلبات فقط لضمان السرعة
             reqs = df_req[df_req['type'].str.contains("طلب", na=False)].tail(5)
             if not reqs.empty:
                 st.write(reqs[['name', 'data', 'type', 'discount']])
@@ -110,35 +114,4 @@ elif user_role == "المدير":
         st.divider()
         col_a, col_b = st.columns(2)
         with col_a:
-            st.subheader("➕ إضافة أوفر تايم")
-            emp_ov = st.selectbox("الموظف:", list(STAFF_DATA.keys()), key="ov")
-            amt_ov = st.number_input("المبلغ:", min_value=0, step=1000)
-            if st.button("إضافة المكافأة"):
-                send_to_google(emp_ov, datetime.now().strftime("%Y-%m-%d"), "مكافأة", "أوفر تايم", 0, amt_ov)
-                st.success("تمت الإضافة"); time.sleep(1); st.rerun()
-        
-        with col_b:
-            st.subheader("🚫 تسجيل غياب")
-            emp_ab = st.selectbox("الموظف:", list(STAFF_DATA.keys()), key="ab")
-            if st.button("خصم غياب (15,000)"):
-                send_to_google(emp_ab, datetime.now().strftime("%Y-%m-%d"), "غياب", "غياب", 15000, 0)
-                st.error("تم الخصم"); time.sleep(1); st.rerun()
-
-        st.divider()
-        if st.button("📊 عرض كشف الرواتب المُرتب"):
-            df_all = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-            res_idx = df_all[df_all['type'] == 'تصفية أسبوعية'].index
-            active_df = df_all.iloc[res_idx.max() + 1:] if not res_idx.empty else df_all
-            
-            summary = []
-            for name, info in STAFF_DATA.items():
-                u_df = active_df[active_df['name'] == name.strip()]
-                disc = int(u_df['discount'].sum())
-                over = int(u_df['overtime'].sum())
-                summary.append({"الموظف": name, "الراتب": info['salary'], "الخصم": disc, "الإضافي": over, "الصافي": info['salary'] - disc + over})
-            st.table(pd.DataFrame(summary).sort_values(by="الصافي", ascending=False))
-
-        st.divider()
-        if st.button("🔄 تصفير الأسبوع"):
-            send_to_google("نظام_تصفير", datetime.now().strftime("%Y-%m-%d"), "00:00", "تصفية أسبوعية", 0, 0)
-            st.balloons(); time.sleep(1); st.rerun()
+            st.subheader("➕ إضافة أوفر
