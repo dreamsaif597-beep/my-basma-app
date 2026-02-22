@@ -76,5 +76,6 @@ elif user_role == "المدير":
         
         st.divider()
         # ضَع رابط جدول بيانات جوجل (الذي يحتوي الردود) هنا:
-        sheet_link = "ضع_رابط_جدول_البيانات_هنا" 
+        sheet_link = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit?usp=sharing" 
         st.markdown(f"### [🔗 اضغط هنا لفتح جدول البصمات والخصومات]({sheet_link})")
+
