@@ -17,9 +17,8 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# ميزة التصفية: حفظ تاريخ بداية الأسبوع الجديد في "ذاكرة المتصفح"
 if "last_reset" not in st.session_state:
-    st.session_state["last_reset"] = "2000-01-01" # تاريخ قديم جداً كبداية
+    st.session_state["last_reset"] = "2000-01-01"
 
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
@@ -36,11 +35,8 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 def get_total_discounts(name):
     try:
         df = pd.read_csv(SHEET_CSV_URL)
-        # تحويل عمود التاريخ لنوع تاريخ لكي نستطيع المقارنة
         df['data'] = pd.to_datetime(df['data']).dt.date
         reset_date = datetime.strptime(st.session_state["last_reset"], "%Y-%m-%d").date()
-        
-        # تصفية: فقط الأسماء المطابقة + التواريخ التي بعد تاريخ التصفية
         mask = (df['name'].str.strip() == name) & (df['data'] >= reset_date)
         user_discounts = df.loc[mask, 'discount'].sum()
         return int(user_discounts)
@@ -105,15 +101,25 @@ elif user_role == "المدير":
         st.markdown(f"### [🔗 فتح جدول الردود الرئيسي]({sheet_url})")
         
         st.divider()
+        st.subheader("🚫 تسجيل غياب (انقطاع)")
+        selected_absent = st.selectbox("اختر الموظف الغائب:", list(STAFF_DATA.keys()))
+        if st.button(f"تسجيل غياب لـ {selected_absent} (-15,000)"):
+            c_date = datetime.now().strftime("%Y-%m-%d")
+            c_time = datetime.now().strftime("%H:%M:%S")
+            # إرسال خصم 15000 للجدول
+            send_to_google(selected_absent, c_date, c_time, "غياب انقطاع", 15000, 0)
+            st.error(f"تم خصم 15,000 من {selected_absent} بنجاح.")
+            st.rerun()
+
+        st.divider()
         st.subheader("👥 ملخص رواتب الأسبوع الحالي")
         for name, data in STAFF_DATA.items():
             dis = get_total_discounts(name)
             st.write(f"**{name}**: الصافي {data['salary'] - dis:,} د.ع (خصم الأسبوع: {dis:,})")
         
         st.divider()
-        # زر التصفية الجديد
         if st.button("🗑️ تصفير لبدء أسبوع جديد"):
             st.session_state["last_reset"] = datetime.now().strftime("%Y-%m-%d")
             st.balloons()
-            st.success(f"تم تصفير العدادات. الأسبوع الجديد يبدأ من تاريخ اليوم: {st.session_state['last_reset']}")
+            st.success("تم تصفير العدادات.")
             st.rerun()
