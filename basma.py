@@ -15,21 +15,22 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# --- وظيفة الإرسال للجدول ---
+# دالة الإرسال بالأرقام الدقيقة من رابطك الأخير
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
-        "entry.104291709": name,      # حقل name
-        "entry.786801446": data_val,  # حقل data
-        "entry.2093200411": time_val, # حقل time
-        "entry.1043553703": type_val, # حقل type
-        "entry.1254543219": discount, # حقل discount
-        "entry.1151470082": overtime  # حقل overtime
+        "entry.104291709": name,      
+        "entry.786801446": data_val,  
+        "entry.2093200411": time_val, 
+        "entry.1043553703": type_val, 
+        "entry.1254543219": discount, 
+        "entry.1151470082": overtime  
     }
     try: requests.post(FORM_URL, data=payload)
     except: pass
 
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 
+# --- واجهة الدخول ---
 st.sidebar.title("🔐 بوابة الدخول")
 user_role = st.sidebar.radio("دخول كـ:", ["موظف", "المدير"])
 
@@ -41,14 +42,14 @@ if user_role == "موظف":
         st.header(f"👋 أهلاً {selected_name}")
         st.metric("الراتب الأسبوعي", f"{STAFF_DATA[selected_name]['salary']:,} د.ع")
         
-        st.divider()
-        st.subheader("⏱️ تسجيل البصمة")
-        
         now = datetime.now()
         c_date = now.strftime("%Y-%m-%d")
         c_time = now.strftime("%H:%M:%S")
 
+        st.divider()
+        st.subheader("⏱️ تسجيل البصمة")
         col1, col2 = st.columns(2)
+        
         if col1.button("📥 تسجيل حضور"):
             emp = STAFF_DATA[selected_name]
             official_start = emp['start'] if emp['type'] == 'single' else emp['s1']
@@ -58,35 +59,32 @@ if user_role == "موظف":
             
             discount = int(diff * 200) if diff > 5 else 0
             if discount > 0: st.error(f"تأخير {int(diff)} دقيقة. الخصم: {discount:,} د.ع")
-            else: st.success(f"تم الحضور في الوقت: {c_time}")
+            else: st.success("حضور في الوقت المحدد!")
             
             send_to_google(selected_name, c_date, c_time, "حضور", discount, 0)
             st.balloons()
 
         if col2.button("📤 تسجيل انصراف"):
-            st.info(f"تم تسجيل الانصراف: {c_time}")
+            st.info("تم تسجيل الانصراف")
             send_to_google(selected_name, c_date, c_time, "انصراف", 0, 0)
 
         st.divider()
         with st.expander("📝 تقديم طلب (إجازة / سلفة)"):
-            req_type = st.selectbox("نوع الطلب", ["إجازة", "سلفة"])
+            type_req = st.selectbox("نوع الطلب", ["إجازة", "سلفة"])
             if st.button("إرسال الطلب"):
-                send_to_google(selected_name, c_date, c_time, f"طلب {req_type}", 0, 0)
-                st.warning(f"تم إرسال طلب {req_type} للمدير")
+                send_to_google(selected_name, c_date, c_time, f"طلب {type_req}", 0, 0)
+                st.warning(f"تم إرسال طلب {type_req} للمدير")
 
 elif user_role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
         st.header("📊 لوحة تحكم المدير")
-        
-        sheet_link = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit?usp=sharing"
-        st.markdown(f"### [🔗 اضغط هنا لفتح جدول البصمات]({sheet_link})")
+        sheet_url = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit#gid=1114343408"
+        st.markdown(f"### [🔗 اضغط هنا لفتح جدول البصمات (تأكد من فتح صفحة Form_Responses)]({sheet_url})")
         
         st.divider()
         st.subheader("👥 كشف الرواتب")
         for staff, info in STAFF_DATA.items():
-            # حسبة افتراضية تعرض الصافي (يمكنك تعديلها يدوياً يوم الخميس)
-            st.write(f"**{staff}**: الراتب الأساسي {info['salary']:,} د.ع")
+            st.write(f"**{staff}**: الراتب {info['salary']:,} د.ع")
         
-        if st.button("💰 تصفية حسابات الأسبوع"):
-            st.success("تم تأشير نهاية الأسبوع بنجاح")
-            st.balloons()
+        if st.button("💰 تصفية حسابات الخميس"):
+            st.success("تم تأشير التصفية")
