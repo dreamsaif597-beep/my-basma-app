@@ -4,7 +4,7 @@ import requests
 
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
-# الرابط الصحيح للإرسال (ينتهي بـ formResponse)
+# الرابط الصحيح لإرسال البيانات (ينتهي بـ formResponse)
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 
 STAFF_DATA = {
@@ -16,15 +16,18 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# --- وظيفة إرسال البيانات (المعدلة بالـ IDs الجديدة) ---
-def send_to_google(name, status, discount=0):
-    data = {
-        "entry.104291709": name,      # ID الاسم الصحيح
-        "entry.1254543219": discount, # ID الخصم الصحيح
-        "entry.786801446": status     # استخدمنا ID احتياطي للحالة
+# --- وظيفة إرسال البيانات (باستخدام IDs الدقيقة من رابطك) ---
+def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
+    payload = {
+        "entry.104291709": name,      # حقل name
+        "entry.786801446": data_val,  # حقل data
+        "entry.2093200411": time_val, # حقل time
+        "entry.1043553703": type_val, # حقل type
+        "entry.1254543219": discount, # حقل discount
+        "entry.1151470082": overtime  # حقل overtime
     }
     try:
-        requests.post(FORM_URL, data=data)
+        requests.post(FORM_URL, data=payload)
     except:
         pass
 
@@ -43,17 +46,18 @@ if user_role == "موظف":
         
         st.divider()
         st.subheader("⏱️ تسجيل البصمة")
+        
+        now = datetime.now()
+        current_date = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%H:%M:%S")
+
         if st.button("📥 تسجيل حضور الآن"):
-            now = datetime.now()
-            current_time = now.strftime("%H:%M")
-            
             # حساب الخصم
             emp = STAFF_DATA[selected_name]
             official_start = emp['start'] if emp['type'] == 'single' else emp['s1']
             
-            fmt = '%H:%M'
-            d1 = datetime.strptime(current_time, fmt)
-            d2 = datetime.strptime(official_start, fmt)
+            d1 = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
+            d2 = datetime.strptime(official_start, "%H:%M")
             diff = (d1 - d2).total_seconds() / 60
             
             discount = 0
@@ -63,19 +67,24 @@ if user_role == "موظف":
             else:
                 st.success(f"تم الحضور بنجاح الساعة {current_time}")
             
-            send_to_google(selected_name, "حضور", discount)
+            # إرسال البيانات للجدول
+            send_to_google(selected_name, current_date, current_time, "حضور", discount, 0)
             st.balloons()
+
+        if st.button("📤 تسجيل انصراف الآن"):
+            st.info(f"تم تسجيل الانصراف الساعة {current_time}")
+            send_to_google(selected_name, current_date, current_time, "انصراف", 0, 0)
 
 elif user_role == "المدير":
     admin_input = st.sidebar.text_input("رمز دخول المدير:", type="password")
     if admin_input == ADMIN_PASSWORD:
         st.header("📊 لوحة تحكم المدير")
-        st.subheader("👥 ملخص الرواتب الأسبوعي")
-        for staff, info in STAFF_DATA.items():
-            st.write(f"**{staff}**: الراتب {info['salary']:,} د.ع")
+        
+        # رابط جدول البيانات الخاص بك
+        sheet_link = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit?usp=sharing"
+        st.markdown(f"### [🔗 اضغط هنا لفتح جدول البصمات والخصومات]({sheet_link})")
         
         st.divider()
-        # ضَع رابط جدول بيانات جوجل (الذي يحتوي الردود) هنا:
-        sheet_link = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit?usp=sharing" 
-        st.markdown(f"### [🔗 اضغط هنا لفتح جدول البصمات والخصومات]({sheet_link})")
-
+        st.subheader("👥 قائمة الرواتب")
+        for staff, info in STAFF_DATA.items():
+            st.write(f"**{staff}**: {info['salary']:,} د.ع")
