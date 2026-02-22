@@ -31,7 +31,8 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     try: requests.post(FORM_URL, data=payload, timeout=5)
     except: pass
 
-def get_active_financials(name):
+@st.cache_data(ttl=10) # تحديث تلقائي كل 10 ثواني لتقليل الضغط على السيرفر
+def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
@@ -39,18 +40,25 @@ def get_active_financials(name):
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0)
         
+        # الحصول على البيانات النشطة بعد آخر تصفية
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
         
-        user_data = active_df[(active_df['name'] == name) & 
-                             (~active_df['type'].str.contains("طلب|مؤرشف", na=False))]
-        
-        return {
-            "discounts": int(user_data['discount'].sum()),
-            "overtime": int(user_data['overtime'].sum())
-        }
+        # استبعاد الطلبات والمؤرشفات فوراً لسرعة الحساب
+        active_df = active_df[~active_df['type'].str.contains("طلب|مؤرشف", na=False)]
+        return active_df
     except:
-        return {"discounts": 0, "overtime": 0}
+        return pd.DataFrame()
+
+def get_active_financials(name):
+    df = fetch_and_clean_data()
+    if df.empty: return {"discounts": 0, "overtime": 0}
+    
+    user_data = df[df['name'] == name]
+    return {
+        "discounts": int(user_data['discount'].sum()),
+        "overtime": int(user_data['overtime'].sum())
+    }
 
 # --- واجهة التطبيق ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
@@ -86,23 +94,14 @@ if user_role == "موظف":
 
         if c2.button("📤 تسجيل انصراف"):
             emp = STAFF_DATA[selected_name]
-            # تحديد وقت نهاية الدوام الرسمي
             official_end = emp['end'] if emp['type'] == 'single' else emp['e2']
-            
-            # حساب الفرق (بالدقائق)
             time_now = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
             time_end = datetime.strptime(official_end, "%H:%M")
             diff_overtime = (time_now - time_end).total_seconds() / 60
-            
-            # إذا تأخر بالخروج أكثر من دقيقة واحدة، يحسب له 100 دينار عن كل دقيقة
             ov_amount = int(diff_overtime * 100) if diff_overtime > 1 else 0
             
             send_to_google(selected_name, c_date, c_time, "انصراف", 0, ov_amount)
-            if ov_amount > 0:
-                st.success(f"تم تسجيل الانصراف. الإضافي: {ov_amount:,}")
-            else:
-                st.info("تم تسجيل الانصراف بنجاح")
-            time.sleep(1); st.rerun()
+            st.info(f"تم تسجيل الانصراف. الإضافي: {ov_amount:,}"); time.sleep(1); st.rerun()
 
         st.divider()
         with st.expander("📝 طلب إجازة أو سلفة"):
@@ -110,20 +109,9 @@ if user_role == "موظف":
             val_req = st.number_input("المبلغ (للسلفة فقط)", min_value=0, step=5000)
             reason = st.text_input("السبب")
             if st.button("إرسال الطلب"):
-                try:
-                    df_check = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-                    df_check.columns = [c.strip() for c in df_check.columns]
-                    existing_reqs = df_check[(df_check['name'] == selected_name) & (df_check['type'] == f"طلب {t_req}")]
-                    archived_ids = df_check[df_check['type'] == "مؤرشف"]['data'].tolist()
-                    is_pending = any(req_data not in archived_ids for req_data in existing_reqs['data'])
-                    if is_pending:
-                        st.error(f"يوجد طلب {t_req} سابق لم يتم الرد عليه بعد!")
-                    else:
-                        unique_id = f"{reason} ({now.strftime('%H:%M:%S')})"
-                        send_to_google(selected_name, unique_id, c_date, f"طلب {t_req}", val_req, 0)
-                        st.warning("تم الإرسال للمدير")
-                except:
-                    st.error("خطأ في الاتصال، حاول ثانية.")
+                unique_id = f"{reason} ({now.strftime('%H:%M:%S')})"
+                send_to_google(selected_name, unique_id, c_date, f"طلب {t_req}", val_req, 0)
+                st.warning("تم الإرسال للمدير")
 
 elif user_role == "المدير":
     if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
@@ -131,6 +119,7 @@ elif user_role == "المدير":
 
         st.subheader("📩 طلبات معلقة")
         try:
+            # هنا نستخدم القراءة المباشرة فقط للطلبات لضمان الدقة العالية
             df_raw = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
             df_raw.columns = [c.strip() for c in df_raw.columns]
             reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
@@ -138,28 +127,18 @@ elif user_role == "المدير":
             pending = reqs[~reqs['data'].isin(archived)]
 
             if not pending.empty:
-                if st.button("🗑️ إخفاء كل الطلبات"):
-                    for _, r in pending.iterrows():
-                        send_to_google(r['name'], r['data'], "00:00", "مؤرشف", 0, 0)
-                    st.success("تم الإخفاء"); time.sleep(1); st.rerun()
-
                 for idx, row in pending[::-1].iterrows():
                     with st.expander(f"📌 {row['type']} - {row['name']}"):
                         st.write(f"**التفاصيل:** {row['data']}")
-                        c1, c2, c3 = st.columns(3)
+                        c1, c2 = st.columns(2)
                         if c1.button("✅ موافقة", key=f"ok_{idx}"):
                             if "سلفة" in str(row['type']):
                                 send_to_google(row['name'], f"موافقة سلفة: {row['data']}", "00:00", "سلفة مقبولة", row['discount'], 0)
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
                             st.success("تمت العملية"); time.sleep(1); st.rerun()
-                        
                         if c2.button("❌ رفض", key=f"no_{idx}"):
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
-                            st.error("تم الرفض وحذف الطلب"); time.sleep(1); st.rerun()
-
-                        if c3.button("👁️ إخفاء", key=f"hi_{idx}"):
-                            send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
-                            st.info("تم الإخفاء"); time.sleep(1); st.rerun()
+                            st.error("تم الرفض"); time.sleep(1); st.rerun()
             else:
                 st.info("لا توجد طلبات.")
         except: pass
@@ -182,22 +161,24 @@ elif user_role == "المدير":
                 st.error("تم الخصم"); time.sleep(1); st.rerun()
 
         st.divider()
-        if st.button("📊 عرض كشف الرواتب المُرتب"):
-            df_all = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
-            df_all.columns = [c.strip() for c in df_all.columns]
-            df_all['discount'] = pd.to_numeric(df_all['discount'], errors='coerce').fillna(0)
-            df_all['overtime'] = pd.to_numeric(df_all['overtime'], errors='coerce').fillna(0)
-            
-            res_idx = df_all[df_all['type'] == 'تصفية أسبوعية'].index
-            active_df = df_all.iloc[res_idx.max() + 1:] if not res_idx.empty else df_all
+        if st.button("📊 عرض كشف الرواتب المُرتب (سريع)"):
+            active_df = fetch_and_clean_data()
             
             summary = []
+            # حساب الإجماليات لكل الموظفين دفعة واحدة لتسريع العملية
+            totals = active_df.groupby('name')[['discount', 'overtime']].sum()
+            
             for name, info in STAFF_DATA.items():
-                u_df = active_df[(active_df['name'] == name.strip()) & 
-                                 (~active_df['type'].str.contains("طلب|مؤرشف", na=False))]
-                disc = int(u_df['discount'].sum())
-                over = int(u_df['overtime'].sum())
-                summary.append({"الموظف": name, "الراتب": info['salary'], "الخصم": disc, "الإضافي": over, "الصافي": info['salary'] - disc + over})
+                disc = int(totals.loc[name, 'discount']) if name in totals.index else 0
+                over = int(totals.loc[name, 'overtime']) if name in totals.index else 0
+                summary.append({
+                    "الموظف": name, 
+                    "الراتب": info['salary'], 
+                    "الخصم": disc, 
+                    "الإضافي": over, 
+                    "الصافي": info['salary'] - disc + over
+                })
+            
             st.table(pd.DataFrame(summary).sort_values(by="الصافي", ascending=False))
 
         st.divider()
