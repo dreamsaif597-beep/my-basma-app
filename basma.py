@@ -85,8 +85,24 @@ if user_role == "موظف":
             st.success(f"تم تسجيل الحضور. الخصم: {discount:,}"); time.sleep(1); st.rerun()
 
         if c2.button("📤 تسجيل انصراف"):
-            send_to_google(selected_name, c_date, c_time, "انصراف", 0, 0)
-            st.info("تم تسجيل الانصراف بنجاح"); time.sleep(1); st.rerun()
+            emp = STAFF_DATA[selected_name]
+            # تحديد وقت نهاية الدوام الرسمي
+            official_end = emp['end'] if emp['type'] == 'single' else emp['e2']
+            
+            # حساب الفرق (بالدقائق)
+            time_now = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
+            time_end = datetime.strptime(official_end, "%H:%M")
+            diff_overtime = (time_now - time_end).total_seconds() / 60
+            
+            # إذا تأخر بالخروج أكثر من دقيقة واحدة، يحسب له 100 دينار عن كل دقيقة
+            ov_amount = int(diff_overtime * 100) if diff_overtime > 1 else 0
+            
+            send_to_google(selected_name, c_date, c_time, "انصراف", 0, ov_amount)
+            if ov_amount > 0:
+                st.success(f"تم تسجيل الانصراف. الإضافي: {ov_amount:,}")
+            else:
+                st.info("تم تسجيل الانصراف بنجاح")
+            time.sleep(1); st.rerun()
 
         st.divider()
         with st.expander("📝 طلب إجازة أو سلفة"):
@@ -94,15 +110,12 @@ if user_role == "موظف":
             val_req = st.number_input("المبلغ (للسلفة فقط)", min_value=0, step=5000)
             reason = st.text_input("السبب")
             if st.button("إرسال الطلب"):
-                # --- منع التكرار ---
                 try:
                     df_check = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
                     df_check.columns = [c.strip() for c in df_check.columns]
-                    # البحث عن طلبات معلقة لنفس الموظف ونفس النوع
                     existing_reqs = df_check[(df_check['name'] == selected_name) & (df_check['type'] == f"طلب {t_req}")]
                     archived_ids = df_check[df_check['type'] == "مؤرشف"]['data'].tolist()
                     is_pending = any(req_data not in archived_ids for req_data in existing_reqs['data'])
-                    
                     if is_pending:
                         st.error(f"يوجد طلب {t_req} سابق لم يتم الرد عليه بعد!")
                     else:
@@ -141,7 +154,6 @@ elif user_role == "المدير":
                             st.success("تمت العملية"); time.sleep(1); st.rerun()
                         
                         if c2.button("❌ رفض", key=f"no_{idx}"):
-                            # تعديل: الرفض الآن يحذف الطلب تلقائياً عن طريق أرشفته
                             send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
                             st.error("تم الرفض وحذف الطلب"); time.sleep(1); st.rerun()
 
@@ -155,7 +167,7 @@ elif user_role == "المدير":
         st.divider()
         col_a, col_b = st.columns(2)
         with col_a:
-            st.subheader("➕ إضافة أوفر تايم")
+            st.subheader("➕ إضافة أوفر تايم يدوي")
             emp_ov = st.selectbox("الموظف:", list(STAFF_DATA.keys()), key="ov")
             amt_ov = st.number_input("المبلغ:", min_value=0, step=1000)
             if st.button("إضافة المكافأة"):
