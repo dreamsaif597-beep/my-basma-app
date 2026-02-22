@@ -7,7 +7,7 @@ import pandas as pd # أضفنا هذه المكتبة لقراءة الجدول
 ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 # رابط الجدول بصيغة CSV للقراءة منه (مهم جداً لعرض الراتب النهائي)
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/export?format=csv&gid=1114343408"
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
 STAFF_DATA = {
     "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
@@ -92,3 +92,4 @@ if user_role == "موظف":
             send_to_google(selected_name, c_date, c_time, "انصراف", 0, 0)
             
         # ... بقية الأزرار (إجازة/سلفة ولوحة المدير) ...
+
