@@ -35,21 +35,22 @@ def send_to_google(name, data_val, time_val, type_val, discount=0):
 
 def get_total_discounts(name):
     try:
-        # كسر الكاش لجلب أحدث بيانات
+        # كسر الكاش لجلب البيانات الحية
         df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
-        df['data'] = pd.to_datetime(df['data']).dt.date
         
-        # إيجاد تاريخ آخر تصفير في الجدول
-        resets = df[df['type'] == 'تصفية أسبوعية']
-        if not resets.empty:
-            last_reset_date = resets['data'].max()
+        # إيجاد سطر آخر تصفية أسبوعية
+        reset_indices = df[df['type'] == 'تصفية أسبوعية'].index
+        if not reset_indices.empty:
+            last_reset_index = reset_indices.max()
+            # فلترة الجدول لأخذ البيانات التي جاءت بعد سطر التصفية فقط
+            df_active = df.iloc[last_reset_index + 1:]
         else:
-            last_reset_date = datetime(2000, 1, 1).date()
+            df_active = df
 
         target = clean_name(name)
-        # نحسب الخصومات التي تاريخها يساوي أو بعد تاريخ آخر تصفية
-        mask = (df['name'].apply(clean_name) == target) & (df['data'] >= last_reset_date)
-        return int(df.loc[mask, 'discount'].sum())
+        # حساب مجموع الخصومات للموظف من البيانات النشطة فقط
+        total = df_active[df_active['name'].apply(clean_name) == target]['discount'].sum()
+        return int(total)
     except:
         return 0
 
@@ -66,9 +67,9 @@ if role == "موظف":
         sal = STAFF_DATA[u_name]['salary']
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("الراتب الكلي", f"{sal:,}")
-        c2.metric("الخصومات", f"{dis:,}")
-        c3.metric("الصافي", f"{sal - dis:,}")
+        c1.metric("الراتب الأسبوعي", f"{sal:,} د.ع")
+        c2.metric("خصومات الأسبوع", f"{dis:,} د.ع")
+        c3.metric("الصافي (الخميس)", f"{sal - dis:,} د.ع")
         
         st.divider()
         now = datetime.now()
@@ -81,8 +82,8 @@ if role == "موظف":
             disc = int(diff * 200) if diff > 5 else 0
             
             send_to_google(u_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "حضور", disc)
-            st.success(f"تم تسجيل الحضور. الخصم: {disc:,}")
-            time.sleep(2) # انتظار قليل للتأكد من وصول البيانات لجوجل
+            st.success(f"تم التسجيل! الخصم: {disc:,}")
+            time.sleep(2)
             st.rerun()
 
         if st.button("📤 تسجيل انصراف"):
@@ -99,25 +100,34 @@ elif role == "المدير":
         if st.button("خصم 15,000 غياب"):
             today = datetime.now()
             send_to_google(abs_u, today.strftime("%Y-%m-%d"), today.strftime("%H:%M:%S"), "غياب", 15000)
-            st.error(f"تم الخصم من {abs_u}")
+            st.error(f"تم خصم غياب من {abs_u}")
             time.sleep(2)
             st.rerun()
 
         st.divider()
-        # عرض الكشف
-        if st.button("📊 عرض كشف الرواتب والترتيب"):
+        # كشف الخميس المرتّب
+        st.subheader("🗓️ كشف رواتب يوم الخميس")
+        if st.button("📊 عرض وترتيب الرواتب"):
             rows = []
             for n, d in STAFF_DATA.items():
                 disc = get_total_discounts(n)
-                rows.append({"الموظف": n, "الراتب": d['salary'], "الخصم": disc, "الصافي": d['salary'] - disc})
-            st.table(pd.DataFrame(rows).sort_values(by="الصافي", ascending=False))
+                rows.append({
+                    "الموظف": n, 
+                    "الراتب الثابت": f"{d['salary']:,}", 
+                    "الخصومات": f"{disc:,}", 
+                    "الصافي": d['salary'] - disc
+                })
+            df_res = pd.DataFrame(rows).sort_values(by="الصافي", ascending=False)
+            df_res["الصافي"] = df_res["الصافي"].apply(lambda x: f"{x:,} د.ع")
+            st.table(df_res)
 
         st.divider()
         # التصفير
-        if st.button("🔄 تصفير الأسبوع"):
-            today = datetime.now().strftime("%Y-%m-%d")
-            send_to_google("النظام", today, "23:59:59", "تصفية أسبوعية", 0)
+        if st.button("🔄 تصفير الأسبوع (بدء من جديد)"):
+            today = datetime.now()
+            # إرسال علامة التصفية للجدول
+            send_to_google("نظام_تصفير", today.strftime("%Y-%m-%d"), today.strftime("%H:%M:%S"), "تصفية أسبوعية", 0)
             st.balloons()
-            st.success("تم التصفير. سيظهر الصفر للجميع خلال لحظات.")
+            st.success("تم التصفير! سيتم تجاهل كل الخصومات السابقة الآن.")
             time.sleep(2)
             st.rerun()
