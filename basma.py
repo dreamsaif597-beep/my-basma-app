@@ -6,7 +6,6 @@ import pandas as pd
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
-# الرابط الذي استخرجته أنت (CSV)
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
 STAFF_DATA = {
@@ -17,6 +16,10 @@ STAFF_DATA = {
     "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
+
+# ميزة التصفية: حفظ تاريخ بداية الأسبوع الجديد في "ذاكرة المتصفح"
+if "last_reset" not in st.session_state:
+    st.session_state["last_reset"] = "2000-01-01" # تاريخ قديم جداً كبداية
 
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
@@ -33,8 +36,13 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 def get_total_discounts(name):
     try:
         df = pd.read_csv(SHEET_CSV_URL)
-        # التأكد من مطابقة الاسم بغض النظر عن حالة الأحرف
-        user_discounts = df[df['name'].str.strip() == name]['discount'].sum()
+        # تحويل عمود التاريخ لنوع تاريخ لكي نستطيع المقارنة
+        df['data'] = pd.to_datetime(df['data']).dt.date
+        reset_date = datetime.strptime(st.session_state["last_reset"], "%Y-%m-%d").date()
+        
+        # تصفية: فقط الأسماء المطابقة + التواريخ التي بعد تاريخ التصفية
+        mask = (df['name'].str.strip() == name) & (df['data'] >= reset_date)
+        user_discounts = df.loc[mask, 'discount'].sum()
         return int(user_discounts)
     except:
         return 0
@@ -51,15 +59,14 @@ if user_role == "موظف":
     if entered_pass == STAFF_DATA[selected_name]["pass"]:
         st.header(f"👋 أهلاً {selected_name}")
         
-        # حسبة الرواتب
         weekly_salary = STAFF_DATA[selected_name]['salary']
         total_discounts = get_total_discounts(selected_name)
         final_salary = weekly_salary - total_discounts
         
-        st.subheader("💰 كشف حسابك الأسبوعي")
+        st.subheader("💰 كشف حسابك للأسبوع الحالي")
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("الراتب الكلي", f"{weekly_salary:,} د.ع")
-        col_m2.metric("مجموع الخصومات", f"{total_discounts:,} د.ع")
+        col_m2.metric("خصومات الأسبوع", f"{total_discounts:,} د.ع", delta_color="inverse")
         col_m3.metric("صافي الخميس", f"{final_salary:,} د.ع")
         
         st.divider()
@@ -89,28 +96,24 @@ if user_role == "موظف":
             st.info(f"تم الانصراف: {c_time}")
             send_to_google(selected_name, c_date, c_time, "انصراف", 0, 0)
 
-        with st.expander("📝 طلب إجازة / سلفة"):
-            t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
-            if st.button("إرسال الطلب"):
-                send_to_google(selected_name, c_date, c_time, f"طلب {t_req}", 0, 0)
-                st.warning("تم الإرسال للمدير")
-
-# --- هذا هو الجزء الذي كان ناقصاً في كودك ---
 elif user_role == "المدير":
     admin_pass = st.sidebar.text_input("رمز المدير:", type="password")
     if admin_pass == ADMIN_PASSWORD:
-        st.header("📊 لوحة تحكم المدير")
+        st.header("👑 لوحة تحكم المدير")
         
-        # عرض الرابط المباشر للجدول
         sheet_url = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit#gid=1114343408"
         st.markdown(f"### [🔗 فتح جدول الردود الرئيسي]({sheet_url})")
         
         st.divider()
-        st.subheader("👥 ملخص الرواتب")
+        st.subheader("👥 ملخص رواتب الأسبوع الحالي")
         for name, data in STAFF_DATA.items():
             dis = get_total_discounts(name)
-            st.write(f"**{name}**: الصافي حالياً {data['salary'] - dis:,} د.ع (الخصم: {dis:,})")
+            st.write(f"**{name}**: الصافي {data['salary'] - dis:,} د.ع (خصم الأسبوع: {dis:,})")
         
-        if st.button("💰 تصفية الخميس"):
+        st.divider()
+        # زر التصفية الجديد
+        if st.button("🗑️ تصفير لبدء أسبوع جديد"):
+            st.session_state["last_reset"] = datetime.now().strftime("%Y-%m-%d")
             st.balloons()
-            st.success("تمت التصفية بنجاح")
+            st.success(f"تم تصفير العدادات. الأسبوع الجديد يبدأ من تاريخ اليوم: {st.session_state['last_reset']}")
+            st.rerun()
