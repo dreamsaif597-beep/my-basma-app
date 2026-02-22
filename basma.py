@@ -23,6 +23,7 @@ def clean_name(name):
     if pd.isna(name): return ""
     return str(name).strip().replace("أ", "ا").replace("إ", "ا")
 
+# دالة الإرسال إلى جوجل
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
@@ -32,83 +33,110 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
         "entry.1254543219": discount, 
         "entry.1151470082": overtime  
     }
-    try: requests.post(FORM_URL, data=payload)
-    except: pass
-
-def get_total_discounts(name):
-    # إذا ضغط المدير تصفير للتو، نرجع 0 فوراً دون قراءة الجدول القديم
-    if "force_zero" in st.session_state and st.session_state["force_zero"]:
-        return 0
-        
     try:
-        # إضافة عامل زمني عشوائي للرابط لإجبار جوجل على إعطائنا أحدث بيانات
-        timestamp_url = f"{SHEET_CSV_URL}&cache_bust={time.time()}"
-        df = pd.read_csv(timestamp_url)
+        requests.post(FORM_URL, data=payload)
+    except:
+        st.error("فشل في الاتصال بجوجل")
+
+# دالة حساب الخصومات
+def get_total_discounts(name):
+    try:
+        # كسر الكاش لضمان تحديث البيانات من جوجل
+        t_url = f"{SHEET_CSV_URL}&cache={time.time()}"
+        df = pd.read_csv(t_url)
         df['data'] = pd.to_datetime(df['data']).dt.date
         
-        reset_entries = df[df['type'] == 'تصفية أسبوعية']
-        if not reset_entries.empty:
-            last_reset_date = reset_entries['data'].max()
-        else:
-            last_reset_date = datetime(2000, 1, 1).date()
+        # البحث عن آخر تصفية
+        resets = df[df['type'] == 'تصفية أسبوعية']
+        last_reset = resets['data'].max() if not resets.empty else datetime(2000,1,1).date()
 
-        target_name = clean_name(name)
-        mask = (df['name'].apply(clean_name) == target_name) & (df['data'] >= last_reset_date)
+        target = clean_name(name)
+        mask = (df['name'].apply(clean_name) == target) & (df['data'] >= last_reset)
         return int(df.loc[mask, 'discount'].sum())
     except:
         return 0
 
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 
-user_role = st.sidebar.radio("دخول كـ:", ["موظف", "المدير"])
+user_role = st.sidebar.radio("الدخول كـ:", ["موظف", "المدير"])
 
+# --- واجهة الموظف ---
 if user_role == "موظف":
-    selected_name = st.sidebar.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
-    entered_pass = st.sidebar.text_input("الرمز السري:", type="password")
+    name = st.sidebar.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
+    pw = st.sidebar.text_input("الرمز السري:", type="password")
 
-    if entered_pass == STAFF_DATA[selected_name]["pass"]:
-        st.header(f"👋 أهلاً {selected_name}")
-        # تصفير الحالة إذا دخل الموظف بعد التصفير
-        total_discounts = get_total_discounts(selected_name)
-        weekly_salary = STAFF_DATA[selected_name]['salary']
+    if pw == STAFF_DATA[name]["pass"]:
+        st.header(f"👋 أهلاً {name}")
         
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("الراتب الكلي", f"{weekly_salary:,} د.ع")
-        col_m2.metric("خصومات الأسبوع", f"{total_discounts:,} د.ع")
-        col_m3.metric("صافي الخميس", f"{weekly_salary - total_discounts:,} د.ع")
+        # الحساب المالي
+        weekly_sal = STAFF_DATA[name]['salary']
+        discounts = get_total_discounts(name)
+        
+        c_m1, c_m2, c_m3 = st.columns(3)
+        c_m1.metric("الراتب الكلي", f"{weekly_sal:,}")
+        c_m2.metric("الخصومات", f"{discounts:,}")
+        c_m3.metric("الصافي", f"{weekly_sal - discounts:,}")
         
         st.divider()
-        # (بقية كود البصمة...)
-        if st.button("📥 تسجيل حضور"):
-            now = datetime.now()
-            send_to_google(selected_name, now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"), "حضور", 0, 0)
-            st.success("تم التسجيل")
+        st.subheader("⏱️ البصمة")
+        now = datetime.now()
+        curr_d, curr_t = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+
+        col_btn1, col_btn2 = st.columns(2)
+        if col_btn1.button("📥 تسجيل حضور"):
+            emp = STAFF_DATA[name]
+            start_t = emp['start'] if emp['type'] == 'single' else emp['s1']
+            d1 = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
+            d2 = datetime.strptime(start_t, "%H:%M")
+            diff = (d1 - d2).total_seconds() / 60
+            disc = int(diff * 200) if diff > 5 else 0
+            
+            send_to_google(name, curr_d, curr_t, "حضور", disc)
+            st.success(f"تم تسجيل الحضور. الخصم: {disc:,}")
+            time.sleep(1)
             st.rerun()
 
+        if col_btn2.button("📤 تسجيل انصراف"):
+            send_to_google(name, curr_d, curr_t, "انصراف", 0)
+            st.info("تم تسجيل الانصراف بنجاح")
+
+# --- واجهة المدير ---
 elif user_role == "المدير":
-    admin_pass = st.sidebar.text_input("رمز المدير:", type="password")
-    if admin_pass == ADMIN_PASSWORD:
-        st.header("👑 لوحة تحكم المدير")
-        
-        # كشف الرواتب
-        st.subheader("📊 كشف رواتب الأسبوع")
-        if st.button("عرض الترتيب الحالي"):
-            st.session_state["force_zero"] = False # إعادة القراءة من الجدول
-            results = []
-            for n, d in STAFF_DATA.items():
-                dis = get_total_discounts(n)
-                results.append({"الموظف": n, "الخصم": f"{dis:,}", "الصافي": d['salary']-dis})
-            df_res = pd.DataFrame(results).sort_values(by="الصافي", ascending=False)
-            st.table(df_res)
+    if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
+        st.header("👑 لوحة المدير")
+
+        # 1. تسجيل غياب
+        st.subheader("🚫 تسجيل غياب يدوي")
+        abs_name = st.selectbox("الموظف الغائب:", list(STAFF_DATA.keys()))
+        if st.button("خصم غياب (15,000)"):
+            today = datetime.now().strftime("%Y-%m-%d")
+            send_to_google(abs_name, today, "00:00", "غياب", 15000)
+            st.error(f"تم خصم الغياب من {abs_name}")
+            time.sleep(1)
+            st.rerun()
 
         st.divider()
-        # التصفير مع حل مشكلة عدم الحذف الفوري
-        if st.button("🔄 تصفير الأسبوع (حذف كل الخصومات)"):
-            today = datetime.now().strftime("%Y-%m-%d")
-            send_to_google("النظام", today, "00:00", "تصفية أسبوعية", 0, 0)
+
+        # 2. كشف الرواتب والترتيب
+        st.subheader("📊 كشف رواتب الخميس")
+        if st.button("عرض وترتيب الرواتب"):
+            sal_list = []
+            for n, d in STAFF_DATA.items():
+                disc = get_total_discounts(n)
+                sal_list.append({"الموظف": n, "الراتب": d['salary'], "الخصم": disc, "الصافي": d['salary'] - disc})
             
-            # تفعيل التصفير الفوري في الذاكرة
-            st.session_state["force_zero"] = True
+            df_final = pd.DataFrame(sal_list).sort_values(by="الصافي", ascending=False)
+            st.table(df_final)
+
+        st.divider()
+
+        # 3. التصفير
+        st.subheader("🔄 تصفير الأسبوع")
+        if st.button("تصفير وبدء أسبوع جديد للجميع"):
+            today = datetime.now().strftime("%Y-%m-%d")
+            # إرسال سطر التصفية
+            send_to_google("نظام", today, "00:00", "تصفية أسبوعية", 0)
             st.balloons()
-            st.success("تم التصفير بنجاح! تم مسح الخصومات من العرض.")
+            st.success("تم إرسال أمر التصفير. انتظر 5 ثوانٍ للتحديث...")
+            time.sleep(2)
             st.rerun()
