@@ -4,7 +4,7 @@ import requests
 
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
-# الرابط الحقيقي لإرسال البيانات
+# الرابط الصحيح للإرسال (ينتهي بـ formResponse)
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 
 STAFF_DATA = {
@@ -16,15 +16,12 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-# --- وظيفة إرسال البيانات للجدول ---
-def send_to_google(name, status, discount=0, overtime=0):
-    # استخدام الـ ID الذي أرسلته لي (786801446) وتخمين البقية بناءً على ترتيب فورم جوجل
+# --- وظيفة إرسال البيانات (المعدلة بالـ IDs الجديدة) ---
+def send_to_google(name, status, discount=0):
     data = {
-        "entry.786801446": name,      # سؤال الاسم
-        "entry.1046333550": status,   # سؤال الحالة (تقديري - سيتم ملؤه)
-        "entry.1524362718": discount, # سؤال الخصم
-        "entry.1982736450": overtime, # سؤال الإضافي
-        "entry.564738291": datetime.now().strftime("%Y-%m-%d %H:%M:%S") # الوقت
+        "entry.104291709": name,      # ID الاسم الصحيح
+        "entry.1254543219": discount, # ID الخصم الصحيح
+        "entry.786801446": status     # استخدمنا ID احتياطي للحالة
     }
     try:
         requests.post(FORM_URL, data=data)
@@ -42,23 +39,18 @@ if user_role == "موظف":
 
     if entered_pass == STAFF_DATA[selected_name]["pass"]:
         st.header(f"👋 أهلاً {selected_name}")
-        
-        # حسبة بسيطة للعرض
         st.metric("الراتب الأسبوعي", f"{STAFF_DATA[selected_name]['salary']:,} د.ع")
         
         st.divider()
         st.subheader("⏱️ تسجيل البصمة")
-        c1, c2 = st.columns(2)
-        
-        if c1.button("📥 تسجيل حضور"):
+        if st.button("📥 تسجيل حضور الآن"):
             now = datetime.now()
             current_time = now.strftime("%H:%M")
             
-            # تحديد وقت الحضور الرسمي بناءً على نوع الشفت
+            # حساب الخصم
             emp = STAFF_DATA[selected_name]
             official_start = emp['start'] if emp['type'] == 'single' else emp['s1']
             
-            # حساب الفرق بالدقائق
             fmt = '%H:%M'
             d1 = datetime.strptime(current_time, fmt)
             d2 = datetime.strptime(official_start, fmt)
@@ -69,40 +61,20 @@ if user_role == "موظف":
                 discount = int(diff * 200)
                 st.error(f"تأخير {int(diff)} دقيقة. الخصم: {discount:,} د.ع")
             else:
-                st.success(f"تم تسجيل حضورك الساعة {current_time}")
-                st.balloons()
+                st.success(f"تم الحضور بنجاح الساعة {current_time}")
             
-            send_to_google(selected_name, "حضور", discount, 0)
-
-        if c2.button("📤 تسجيل انصراف"):
-            now = datetime.now()
-            current_time = now.strftime("%H:%M")
-            
-            # حساب الإضافي (بشكل تبسيطي للمدير)
-            st.info(f"تم تسجيل الانصراف الساعة {current_time}")
-            send_to_google(selected_name, "انصراف", 0, "يتم حسابه للمدير")
-
-        st.divider()
-        with st.expander("📝 تقديم طلب (إجازة / سلفة)"):
-            req = st.selectbox("نوع الطلب", ["إجازة", "سلفة"])
-            if st.button("إرسال الطلب"):
-                send_to_google(selected_name, f"طلب {req}", 0, 0)
-                st.warning("تم الإرسال للمدير")
+            send_to_google(selected_name, "حضور", discount)
+            st.balloons()
 
 elif user_role == "المدير":
     admin_input = st.sidebar.text_input("رمز دخول المدير:", type="password")
     if admin_input == ADMIN_PASSWORD:
         st.header("📊 لوحة تحكم المدير")
-        
-        st.subheader("👥 ملخص الرواتب")
+        st.subheader("👥 ملخص الرواتب الأسبوعي")
         for staff, info in STAFF_DATA.items():
             st.write(f"**{staff}**: الراتب {info['salary']:,} د.ع")
         
         st.divider()
-        # رابط مباشر لجدول البيانات لتسهيل عملك
-        st.success("✅ النظام متصل بجدول Google Sheets")
-        st.info("لمراجعة الخصومات والطلبات بالتفصيل، يرجى فتح الجدول المرتبط بالنموذج.")
-        
-        if st.button("💰 تصفية حسابات الخميس"):
-            st.balloons()
-            st.success("تم إرسال أمر تصفية الحسابات")
+        # ضَع رابط جدول بيانات جوجل (الذي يحتوي الردود) هنا:
+        sheet_link = "ضع_رابط_جدول_البيانات_هنا" 
+        st.markdown(f"### [🔗 اضغط هنا لفتح جدول البصمات والخصومات]({sheet_link})")
