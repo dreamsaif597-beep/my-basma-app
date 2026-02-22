@@ -17,8 +17,9 @@ STAFF_DATA = {
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
 
-if "last_reset" not in st.session_state:
-    st.session_state["last_reset"] = "2000-01-01"
+def clean_name(name):
+    if pd.isna(name): return ""
+    return str(name).strip().replace("أ", "ا").replace("إ", "ا")
 
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
@@ -36,10 +37,14 @@ def get_total_discounts(name):
     try:
         df = pd.read_csv(SHEET_CSV_URL)
         df['data'] = pd.to_datetime(df['data']).dt.date
-        reset_date = datetime.strptime(st.session_state["last_reset"], "%Y-%m-%d").date()
-        mask = (df['name'].str.strip() == name) & (df['data'] >= reset_date)
-        user_discounts = df.loc[mask, 'discount'].sum()
-        return int(user_discounts)
+        reset_entries = df[df['type'] == 'تصفية أسبوعية']
+        if not reset_entries.empty:
+            last_reset_date = reset_entries['data'].max()
+        else:
+            last_reset_date = datetime(2000, 1, 1).date()
+        target_name = clean_name(name)
+        mask = (df['name'].apply(clean_name) == target_name) & (df['data'] >= last_reset_date)
+        return int(df.loc[mask, 'discount'].sum())
     except:
         return 0
 
@@ -54,22 +59,19 @@ if user_role == "موظف":
 
     if entered_pass == STAFF_DATA[selected_name]["pass"]:
         st.header(f"👋 أهلاً {selected_name}")
-        
         weekly_salary = STAFF_DATA[selected_name]['salary']
         total_discounts = get_total_discounts(selected_name)
         final_salary = weekly_salary - total_discounts
         
-        st.subheader("💰 كشف حسابك للأسبوع الحالي")
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("الراتب الكلي", f"{weekly_salary:,} د.ع")
-        col_m2.metric("خصومات الأسبوع", f"{total_discounts:,} د.ع", delta_color="inverse")
+        col_m2.metric("خصومات الأسبوع", f"{total_discounts:,} د.ع")
         col_m3.metric("صافي الخميس", f"{final_salary:,} د.ع")
         
         st.divider()
         st.subheader("⏱️ تسجيل البصمة")
         now = datetime.now()
-        c_date = now.strftime("%Y-%m-%d")
-        c_time = now.strftime("%H:%M:%S")
+        c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
 
         c1, c2 = st.columns(2)
         if c1.button("📥 تسجيل حضور"):
@@ -78,13 +80,9 @@ if user_role == "موظف":
             d1 = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
             d2 = datetime.strptime(off_start, "%H:%M")
             diff = (d1 - d2).total_seconds() / 60
-            
             discount = int(diff * 200) if diff > 5 else 0
-            if discount > 0:
-                st.error(f"تأخير {int(diff)} دقيقة. الخصم: {discount:,} د.ع")
-            else:
-                st.success("تم الحضور في الوقت!")
-            
+            if discount > 0: st.error(f"تأخير {int(diff)} دقيقة. الخصم: {discount:,} د.ع")
+            else: st.success("تم الحضور في الوقت!")
             send_to_google(selected_name, c_date, c_time, "حضور", discount, 0)
             st.rerun()
 
@@ -97,29 +95,44 @@ elif user_role == "المدير":
     if admin_pass == ADMIN_PASSWORD:
         st.header("👑 لوحة تحكم المدير")
         
-        sheet_url = "https://docs.google.com/spreadsheets/d/1oS3jJ7Z6PhvK3aB5H4bjfNuR2Qku2QwGLvw4Jl9PXwI/edit#gid=1114343408"
-        st.markdown(f"### [🔗 فتح جدول الردود الرئيسي]({sheet_url})")
-        
-        st.divider()
-        st.subheader("🚫 تسجيل غياب (انقطاع)")
+        # --- قسم الغياب ---
+        st.subheader("🚫 تسجيل غياب")
         selected_absent = st.selectbox("اختر الموظف الغائب:", list(STAFF_DATA.keys()))
-        if st.button(f"تسجيل غياب لـ {selected_absent} (-15,000)"):
-            c_date = datetime.now().strftime("%Y-%m-%d")
-            c_time = datetime.now().strftime("%H:%M:%S")
-            # إرسال خصم 15000 للجدول
+        if st.button(f"خصم غياب لـ {selected_absent} (-15,000)"):
+            c_date, c_time = datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime("%H:%M:%S")
             send_to_google(selected_absent, c_date, c_time, "غياب انقطاع", 15000, 0)
-            st.error(f"تم خصم 15,000 من {selected_absent} بنجاح.")
+            st.error(f"تم تسجيل غياب لـ {selected_absent}")
             st.rerun()
 
         st.divider()
-        st.subheader("👥 ملخص رواتب الأسبوع الحالي")
-        for name, data in STAFF_DATA.items():
-            dis = get_total_discounts(name)
-            st.write(f"**{name}**: الصافي {data['salary'] - dis:,} د.ع (خصم الأسبوع: {dis:,})")
         
+        # --- قسم ترتيب الرواتب الجديد ---
+        st.subheader("🗓️ ترتيب رواتب يوم الخميس")
+        if st.button("📊 عرض كشف الرواتب لهذا الأسبوع"):
+            salary_list = []
+            for name, data in STAFF_DATA.items():
+                dis = get_total_discounts(name)
+                net = data['salary'] - dis
+                salary_list.append({
+                    "الموظف": name,
+                    "الراتب الكلي": f"{data['salary']:,}",
+                    "مجموع الخصم": f"{dis:,}",
+                    "الصافي النهائي": net
+                })
+            
+            # إنشاء جدول (DataFrame) وترتيبه حسب الصافي
+            df_salaries = pd.DataFrame(salary_list)
+            df_salaries = df_salaries.sort_values(by="الصافي النهائي", ascending=False)
+            
+            # تجميل العرض للمدير
+            df_salaries["الصافي النهائي"] = df_salaries["الصافي النهائي"].apply(lambda x: f"{x:,} د.ع")
+            st.table(df_salaries)
+            st.success("تم ترتيب الرواتب من الأعلى صافي إلى الأقل.")
+
         st.divider()
-        if st.button("🗑️ تصفير لبدء أسبوع جديد"):
-            st.session_state["last_reset"] = datetime.now().strftime("%Y-%m-%d")
+        if st.button("🔄 تصفير وبدء أسبوع جديد (للجميع)"):
+            today = datetime.now().strftime("%Y-%m-%d")
+            send_to_google("النظام", today, "00:00", "تصفية أسبوعية", 0, 0)
             st.balloons()
-            st.success("تم تصفير العدادات.")
+            st.success("تم تصفير العدادات للأسبوع الجديد.")
             st.rerun()
