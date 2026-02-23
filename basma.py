@@ -33,29 +33,26 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     except: 
         st.error("فشل الاتصال بجوجل، حاول مرة أخرى")
 
-@st.cache_data(ttl=5) # زدنا الوقت شوي للاستقرار
+@st.cache_data(ttl=5)
 def fetch_and_clean_data():
     try:
-        # قراءة البيانات مع كسر الكاش لضمان أحدث البيانات
+        # استخدام التوقيت الحالي لكسر الكاش
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
         
-        # تنظيف البيانات من الفراغات
         for col in ['name', 'type', 'data']:
             df[col] = df[col].fillna("").astype(str).str.strip()
             
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
         
-        # --- منطق التصفير الأسبوعي ---
-        # نبحث عن آخر سطر فيه "تصفية أسبوعية"
         reset_indices = df[df['type'] == "تصفية أسبوعية"].index
         if not reset_indices.empty:
             last_reset = reset_indices.max()
             df = df.iloc[last_reset + 1:].reset_index(drop=True)
             
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
 # --- إعداد الصفحة ---
@@ -87,18 +84,18 @@ if not st.session_state['auth']:
             else: st.error("الرمز خطأ!")
     st.stop()
 
-# --- خروج ---
+# --- القائمة الجانبية (تسجيل الخروج وزر التحديث العام) ---
 st.sidebar.button("🚪 تسجيل خروج", on_click=lambda: st.session_state.update({'auth': False}))
+if st.sidebar.button("🔄 تحديث البيانات"):
+    st.cache_data.clear()
+    st.rerun()
 
 # --- واجهة الموظف ---
 if st.session_state['role'] == "موظف":
     name = st.session_state['user']
     st.header(f"👋 أهلاً {name}")
     
-    # جلب البيانات المنظفة (بعد آخر تصفية)
     df = fetch_and_clean_data()
-    
-    # تصفية سجلات هذا الموظف فقط (بعيداً عن الطلبات)
     user_records = df[(df['name'] == name) & (~df['type'].str.contains("طلب|مؤرشف", na=False))]
     
     salary = STAFF_DATA[name]['salary']
@@ -112,14 +109,13 @@ if st.session_state['role'] == "موظف":
     col3.metric("الصافي", f"{net_emp:,}")
 
     with st.expander("📊 سجل الحركات (هذا الأسبوع)"):
-        # استبعاد سجلات "انصراف" من الجدول لعرض المكافآت والخصومات فقط
         disp = user_records[user_records['type'] != "انصراف"].copy()
         if not disp.empty:
             disp = disp[['data', 'type', 'discount', 'overtime']]
             disp.columns = ["التاريخ", "النوع", "خصم", "مكافأة"]
             st.dataframe(disp, use_container_width=True, hide_index=True)
         else:
-            st.info("لا توجد حركات مالية (خصم أو مكافأة) سجلت لك هذا الأسبوع.")
+            st.info("لا توجد حركات مالية مسجلة.")
 
     st.divider()
     now = datetime.now()
@@ -155,6 +151,12 @@ if st.session_state['role'] == "موظف":
 # --- واجهة المدير ---
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
+    
+    # إضافة زر تحديث سريع في أعلى لوحة المدير
+    if st.button("🔄 تحديث الكشوفات والطلبات"):
+        st.cache_data.clear()
+        st.rerun()
+        
     df_raw = fetch_and_clean_data()
     
     st.subheader("📩 الطلبات المعلقة")
@@ -207,7 +209,7 @@ elif st.session_state['role'] == "المدير":
         st.table(pd.DataFrame(sum_list))
 
     st.divider()
-    st.warning("⚠️ زر التصفير يمسح كل الحسابات والطلبات السابقة")
+    st.error("🚨 منطقة العمليات الحساسة")
     if st.button("🔄 تصفير الأسبوع بالكامل"):
         send_to_google("نظام", "تصفير شامل", "00:00", "تصفية أسبوعية", 0, 0)
         st.cache_data.clear()
