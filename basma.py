@@ -28,32 +28,41 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
         "entry.1254543219": int(discount), 
         "entry.1151470082": int(overtime)  
     }
-    try: requests.post(FORM_URL, data=payload, timeout=5)
-    except: pass
+    try: 
+        requests.post(FORM_URL, data=payload, timeout=7)
+    except: 
+        st.error("فشل الاتصال بجوجل، حاول مرة أخرى")
 
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=5) # زدنا الوقت شوي للاستقرار
 def fetch_and_clean_data():
     try:
-        df = pd.read_csv(f"{SHEET_CSV_URL}&cache={time.time()}")
+        # قراءة البيانات مع كسر الكاش لضمان أحدث البيانات
+        df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
+        
+        # تنظيف البيانات من الفراغات
         for col in ['name', 'type', 'data']:
             df[col] = df[col].fillna("").astype(str).str.strip()
+            
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
         
-        # البحث عن آخر تصفية أسبوعية
-        resets = df[df['type'] == 'تصفية أسبوعية'].index
-        if not resets.empty:
-            active_df = df.iloc[resets.max() + 1:]
-        else:
-            active_df = df
-        return active_df
-    except: return pd.DataFrame()
+        # --- منطق التصفير الأسبوعي ---
+        # نبحث عن آخر سطر فيه "تصفية أسبوعية"
+        reset_indices = df[df['type'] == "تصفية أسبوعية"].index
+        if not reset_indices.empty:
+            last_reset = reset_indices.max()
+            df = df.iloc[last_reset + 1:].reset_index(drop=True)
+            
+        return df
+    except Exception as e:
+        return pd.DataFrame()
 
-# --- واجهة تسجيل الدخول ---
+# --- إعداد الصفحة ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 if 'auth' not in st.session_state: st.session_state['auth'] = False
 
+# --- واجهة تسجيل الدخول ---
 if not st.session_state['auth']:
     st.title("🔐 تسجيل الدخول")
     role = st.radio("الدخول كـ:", ["موظف", "المدير"], horizontal=True)
@@ -78,7 +87,7 @@ if not st.session_state['auth']:
             else: st.error("الرمز خطأ!")
     st.stop()
 
-# --- بعد تسجيل الدخول ---
+# --- خروج ---
 st.sidebar.button("🚪 تسجيل خروج", on_click=lambda: st.session_state.update({'auth': False}))
 
 # --- واجهة الموظف ---
@@ -86,26 +95,31 @@ if st.session_state['role'] == "موظف":
     name = st.session_state['user']
     st.header(f"👋 أهلاً {name}")
     
+    # جلب البيانات المنظفة (بعد آخر تصفية)
     df = fetch_and_clean_data()
-    # جلب السجلات الحقيقية فقط (استبعاد الطلبات والأرشفة)
+    
+    # تصفية سجلات هذا الموظف فقط (بعيداً عن الطلبات)
     user_records = df[(df['name'] == name) & (~df['type'].str.contains("طلب|مؤرشف", na=False))]
     
     salary = STAFF_DATA[name]['salary']
     total_disc = int(user_records['discount'].sum())
-    net_emp = salary - total_disc
+    total_ov = int(user_records['overtime'].sum())
+    net_emp = salary - total_disc + total_ov
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("الراتب الأسبوعي", f"{salary:,}")
-    col2.metric("إجمالي الخصم", f"{total_disc:,}")
-    col3.metric("الصافي (بعد الخصم)", f"{net_emp:,}")
+    col1.metric("الراتب", f"{salary:,}")
+    col2.metric("الخصومات", f"{total_disc:,}")
+    col3.metric("الصافي", f"{net_emp:,}")
 
     with st.expander("📊 سجل الحركات (هذا الأسبوع)"):
+        # استبعاد سجلات "انصراف" من الجدول لعرض المكافآت والخصومات فقط
         disp = user_records[user_records['type'] != "انصراف"].copy()
         if not disp.empty:
             disp = disp[['data', 'type', 'discount', 'overtime']]
-            disp.columns = ["التاريخ", "النوع", "خصم (-)", "مكافأة (+)"]
+            disp.columns = ["التاريخ", "النوع", "خصم", "مكافأة"]
             st.dataframe(disp, use_container_width=True, hide_index=True)
-        else: st.info("لا توجد حركات بعد التصفية.")
+        else:
+            st.info("لا توجد حركات مالية (خصم أو مكافأة) سجلت لك هذا الأسبوع.")
 
     st.divider()
     now = datetime.now()
@@ -118,7 +132,8 @@ if st.session_state['role'] == "موظف":
         diff = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(start_t, "%H:%M")).total_seconds() / 60
         disc = int(diff * 200) if diff > 5 else 0
         send_to_google(name, c_date, c_time, "حضور", disc, 0)
-        st.success(f"تم تسجيل الحضور. الخصم: {disc}"); time.sleep(1); st.cache_data.clear(); st.rerun()
+        st.cache_data.clear()
+        st.success(f"تم تسجيل الحضور. الخصم: {disc}"); time.sleep(1); st.rerun()
 
     if btn2.button("📤 تسجيل انصراف"):
         emp = STAFF_DATA[name]
@@ -126,7 +141,8 @@ if st.session_state['role'] == "موظف":
         diff_ov = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(end_t, "%H:%M")).total_seconds() / 60
         ov = int(diff_ov * 100) if diff_ov > 1 else 0
         send_to_google(name, c_date, c_time, "انصراف", 0, ov)
-        st.info("تم تسجيل الانصراف"); time.sleep(1); st.cache_data.clear(); st.rerun()
+        st.cache_data.clear()
+        st.info("تم تسجيل الانصراف"); time.sleep(1); st.rerun()
 
     with st.expander("📝 طلب سلفة أو إجازة"):
         t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
@@ -134,7 +150,7 @@ if st.session_state['role'] == "موظف":
         reason = st.text_input("السبب")
         if st.button("إرسال الطلب"):
             send_to_google(name, f"{reason} | {c_time}", c_date, f"طلب {t_req}", amt_req, 0)
-            st.warning("تم إرسال الطلب للمدير")
+            st.warning("تم إرسال الطلب")
 
 # --- واجهة المدير ---
 elif st.session_state['role'] == "المدير":
@@ -143,10 +159,9 @@ elif st.session_state['role'] == "المدير":
     
     st.subheader("📩 الطلبات المعلقة")
     if not df_raw.empty:
-        # البحث عن الطلبات التي لم يتم أرشفتها في الجولة الحالية (منذ آخر تصفية)
         reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
-        archived_list = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
-        pending = reqs[~reqs['data'].isin(archived_list)]
+        archived = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
+        pending = reqs[~reqs['data'].isin(archived)]
         
         if not pending.empty:
             for i, row in pending[::-1].iterrows():
@@ -161,7 +176,7 @@ elif st.session_state['role'] == "المدير":
                     if c2.button("❌ رفض", key=f"n{i}"):
                         send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
                         st.cache_data.clear(); st.rerun()
-        else: st.info("لا توجد طلبات معلقة بعد آخر تصفية.")
+        else: st.info("لا توجد طلبات معلقة.")
 
     st.divider()
     cx, cy = st.columns(2)
@@ -188,17 +203,15 @@ elif st.session_state['role'] == "المدير":
         for n, info in STAFF_DATA.items():
             d = int(totals.loc[n, 'discount']) if n in totals.index else 0
             o = int(totals.loc[n, 'overtime']) if n in totals.index else 0
-            sum_list.append({"الموظف": n, "الراتب": info['salary'], "الخصم": d, "الإضافي": o, "الصافي النهائي": info['salary'] - d + o})
+            sum_list.append({"الموظف": n, "الراتب": info['salary'], "الخصم": d, "الإضافي": o, "الصافي": info['salary'] - d + o})
         st.table(pd.DataFrame(sum_list))
 
     st.divider()
-    # --- قسم تصفير النظام بالكامل ---
-    st.error("🚨 منطقة عمليات التصفية")
-    if st.button("🔄 تصفير الحسابات والطلبات (الأسبوع الجديد)"):
-        # إرسال علامة التصفية الأسبوعية لجوجل شيت
-        send_to_google("نظام", "تصفير شامل (رواتب + طلبات)", "00:00", "تصفية أسبوعية", 0, 0)
+    st.warning("⚠️ زر التصفير يمسح كل الحسابات والطلبات السابقة")
+    if st.button("🔄 تصفير الأسبوع بالكامل"):
+        send_to_google("نظام", "تصفير شامل", "00:00", "تصفية أسبوعية", 0, 0)
         st.cache_data.clear()
         st.balloons()
-        st.success("تم تصفير كل شيء بنجاح! تم بدء أسبوع جديد.")
+        st.success("تم التصفير بنجاح")
         time.sleep(2)
         st.rerun()
