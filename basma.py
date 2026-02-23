@@ -6,7 +6,6 @@ import time
 
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
-SHOP_IP = "35.197.92.111"  # الـ IP الجديد للمحل
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
@@ -18,15 +17,6 @@ STAFF_DATA = {
     "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
     "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
 }
-
-# --- وظيفة جلب الـ IP للمستخدم ---
-def get_user_ip():
-    try:
-        # جلب الـ IP العام للمستخدم للتأكد من اتصاله بالراوتر
-        response = requests.get('https://api.ipify.org?format=json', timeout=3)
-        return response.json()['ip']
-    except:
-        return "unknown"
 
 # --- الوظائف المساعدة ---
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
@@ -46,7 +36,7 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 @st.cache_data(ttl=5)
 def fetch_and_clean_data():
     try:
-        # استخدام التوقيت الحالي لكسر الكاش لضمان أحدث البيانات
+        # استخدام التوقيت الحالي لكسر الكاش
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
         
@@ -67,24 +57,13 @@ def fetch_and_clean_data():
 
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
-
-# جلب الـ IP الحالي فور تشغيل البرنامج
-current_ip = get_user_ip()
-
 if 'auth' not in st.session_state: st.session_state['auth'] = False
 
 # --- واجهة تسجيل الدخول ---
 if not st.session_state['auth']:
     st.title("🔐 تسجيل الدخول")
     role = st.radio("الدخول كـ:", ["موظف", "المدير"], horizontal=True)
-    
     if role == "موظف":
-        # فحص الـ IP للموظف قبل السماح له بإدخال الرمز
-        if current_ip != SHOP_IP and current_ip != "unknown":
-            st.error(f"🚫 الوصول محظور! يجب الاتصال براوتر المحل حصراً.")
-            st.info(f"الـ IP المرتبط بجهازك: {current_ip}")
-            st.stop()
-            
         user_sel = st.selectbox("اسم الموظف:", list(STAFF_DATA.keys()))
         pass_key = f"saved_pass_{user_sel}"
         default_pass = st.session_state.get(pass_key, "")
@@ -97,7 +76,6 @@ if not st.session_state['auth']:
                 st.rerun()
             else: st.error("الرمز خطأ!")
     else:
-        # المدير يدخل من أي مكان
         admin_pass = st.text_input("رمز المدير:", type="password")
         if st.button("دخول المدير"):
             if admin_pass == ADMIN_PASSWORD:
@@ -106,7 +84,7 @@ if not st.session_state['auth']:
             else: st.error("الرمز خطأ!")
     st.stop()
 
-# --- القائمة الجانبية (تسجيل الخروج وزر التحديث) ---
+# --- القائمة الجانبية (تسجيل الخروج وزر التحديث العام) ---
 st.sidebar.button("🚪 تسجيل خروج", on_click=lambda: st.session_state.update({'auth': False}))
 if st.sidebar.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
@@ -114,12 +92,6 @@ if st.sidebar.button("🔄 تحديث البيانات"):
 
 # --- واجهة الموظف ---
 if st.session_state['role'] == "موظف":
-    # أمان إضافي: إعادة فحص الـ IP للتأكد أنه لم يغير الشبكة بعد الدخول
-    if current_ip != SHOP_IP and current_ip != "unknown":
-        st.error("❌ تم قطع الاتصال بالشبكة المسموح بها.")
-        st.session_state.update({'auth': False})
-        st.stop()
-
     name = st.session_state['user']
     st.header(f"👋 أهلاً {name}")
     
@@ -180,6 +152,7 @@ if st.session_state['role'] == "موظف":
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
     
+    # إضافة زر تحديث سريع في أعلى لوحة المدير
     if st.button("🔄 تحديث الكشوفات والطلبات"):
         st.cache_data.clear()
         st.rerun()
