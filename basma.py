@@ -40,8 +40,13 @@ def fetch_and_clean_data():
             df[col] = df[col].fillna("").astype(str).str.strip()
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
+        
+        # البحث عن آخر تصفية أسبوعية
         resets = df[df['type'] == 'تصفية أسبوعية'].index
-        active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
+        if not resets.empty:
+            active_df = df.iloc[resets.max() + 1:]
+        else:
+            active_df = df
         return active_df
     except: return pd.DataFrame()
 
@@ -82,6 +87,7 @@ if st.session_state['role'] == "موظف":
     st.header(f"👋 أهلاً {name}")
     
     df = fetch_and_clean_data()
+    # جلب السجلات الحقيقية فقط (استبعاد الطلبات والأرشفة)
     user_records = df[(df['name'] == name) & (~df['type'].str.contains("طلب|مؤرشف", na=False))]
     
     salary = STAFF_DATA[name]['salary']
@@ -93,14 +99,13 @@ if st.session_state['role'] == "موظف":
     col2.metric("إجمالي الخصم", f"{total_disc:,}")
     col3.metric("الصافي (بعد الخصم)", f"{net_emp:,}")
 
-    with st.expander("📊 سجل الحركات المالية (خصومات ومكافآت)"):
+    with st.expander("📊 سجل الحركات (هذا الأسبوع)"):
         disp = user_records[user_records['type'] != "انصراف"].copy()
         if not disp.empty:
             disp = disp[['data', 'type', 'discount', 'overtime']]
             disp.columns = ["التاريخ", "النوع", "خصم (-)", "مكافأة (+)"]
             st.dataframe(disp, use_container_width=True, hide_index=True)
-        else:
-            st.info("لا توجد سجلات حالياً.")
+        else: st.info("لا توجد حركات بعد التصفية.")
 
     st.divider()
     now = datetime.now()
@@ -138,29 +143,25 @@ elif st.session_state['role'] == "المدير":
     
     st.subheader("📩 الطلبات المعلقة")
     if not df_raw.empty:
+        # البحث عن الطلبات التي لم يتم أرشفتها في الجولة الحالية (منذ آخر تصفية)
         reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
-        archived = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
-        pending = reqs[~reqs['data'].isin(archived)]
+        archived_list = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
+        pending = reqs[~reqs['data'].isin(archived_list)]
         
         if not pending.empty:
             for i, row in pending[::-1].iterrows():
                 with st.expander(f"📌 {row['name']} - {row['type']}"):
                     st.write(f"التفاصيل: {row['data']}")
                     c1, c2 = st.columns(2)
-                    
-                    # زر الموافقة: يؤرشف الطلب ويثبت الخصم المالي إذا كان سلفة
                     if c1.button("✅ موافقة", key=f"y{i}"):
                         if "سلفة" in row['type']:
                             send_to_google(row['name'], f"سلفة مقبولة: {row['data']}", "00:00", "سلفة مقبولة", row['discount'], 0)
                         send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
-                        st.cache_data.clear(); st.success("تمت الموافقة"); time.sleep(0.5); st.rerun()
-                    
-                    # زر الرفض: يؤرشف الطلب فقط (يخفيه) بدون أي إجراء مالي
+                        st.cache_data.clear(); st.rerun()
                     if c2.button("❌ رفض", key=f"n{i}"):
                         send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
-                        st.cache_data.clear(); st.error("تم رفض الطلب"); time.sleep(0.5); st.rerun()
-        else:
-            st.info("لا توجد طلبات معلقة حالياً.")
+                        st.cache_data.clear(); st.rerun()
+        else: st.info("لا توجد طلبات معلقة بعد آخر تصفية.")
 
     st.divider()
     cx, cy = st.columns(2)
@@ -179,7 +180,7 @@ elif st.session_state['role'] == "المدير":
             st.cache_data.clear(); st.error("تم الخصم"); time.sleep(1); st.rerun()
 
     st.divider()
-    if st.button("📊 عرض كشف الرواتب (الكامل للادارة)"):
+    if st.button("📊 عرض كشف الرواتب (الحالي)"):
         active_df = fetch_and_clean_data()
         clean = active_df[~active_df['type'].str.contains("طلب|مؤرشف", na=False)]
         totals = clean.groupby('name')[['discount', 'overtime']].sum()
@@ -190,6 +191,14 @@ elif st.session_state['role'] == "المدير":
             sum_list.append({"الموظف": n, "الراتب": info['salary'], "الخصم": d, "الإضافي": o, "الصافي النهائي": info['salary'] - d + o})
         st.table(pd.DataFrame(sum_list))
 
-    if st.button("🔄 تصفير الأسبوع"):
-        send_to_google("نظام", "تصفير", "00:00", "تصفية أسبوعية", 0, 0)
-        st.cache_data.clear(); st.balloons(); time.sleep(1); st.rerun()
+    st.divider()
+    # --- قسم تصفير النظام بالكامل ---
+    st.error("🚨 منطقة عمليات التصفية")
+    if st.button("🔄 تصفير الحسابات والطلبات (الأسبوع الجديد)"):
+        # إرسال علامة التصفية الأسبوعية لجوجل شيت
+        send_to_google("نظام", "تصفير شامل (رواتب + طلبات)", "00:00", "تصفية أسبوعية", 0, 0)
+        st.cache_data.clear()
+        st.balloons()
+        st.success("تم تصفير كل شيء بنجاح! تم بدء أسبوع جديد.")
+        time.sleep(2)
+        st.rerun()
