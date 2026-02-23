@@ -39,11 +39,8 @@ def fetch_and_clean_data():
         df['name'] = df['name'].fillna("").astype(str).str.strip()
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0)
-        
         resets = df[df['type'] == 'تصفية أسبوعية'].index
         active_df = df.iloc[resets.max() + 1:] if not resets.empty else df
-        
-        # لا نحذف "طلب" هنا لأننا قد نحتاج عرض الطلبات المقبولة للموظف
         return active_df
     except:
         return pd.DataFrame()
@@ -51,26 +48,36 @@ def fetch_and_clean_data():
 def get_active_financials(name):
     df = fetch_and_clean_data()
     if df.empty: return {"discounts": 0, "overtime": 0, "history": pd.DataFrame()}
-    
-    # استثناء الطلبات غير المؤرشفة من الحساب المالي
     clean_df = df[~df['type'].str.contains("طلب|مؤرشف", na=False)]
     user_data = clean_df[clean_df['name'] == name]
-    
     return {
         "discounts": int(user_data['discount'].sum()),
         "overtime": int(user_data['overtime'].sum()),
-        "history": user_data # نرجع التاريخ المالي للموظف
+        "history": user_data
     }
 
-# --- واجهة التطبيق ---
+# --- واجهة التطبيق الرئيسية ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
-user_role = st.sidebar.radio("دخول كـ:", ["موظف", "المدير"])
+
+# استخدام الراديو في الصفحة الرئيسية بدلاً من السايدبار لسهولة الوصول
+st.title("🏦 نظام بصمة البسمة")
+user_role = st.radio("اختر نوع الدخول:", ["موظف", "المدير"], horizontal=True)
 
 if user_role == "موظف":
-    selected_name = st.sidebar.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
-    entered_pass = st.sidebar.text_input("الرمز السري:", type="password")
+    selected_name = st.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
+    entered_pass = st.text_input("الرمز السري:", type="password")
+    
+    # خيار تسجيل الدخول
+    login_btn = st.button("🔓 تسجيل دخول")
+    
+    if login_btn:
+        if entered_pass == STAFF_DATA[selected_name]["pass"]:
+            st.session_state['logged_in_user'] = selected_name
+        else:
+            st.error("الرمز السري غير صحيح!")
 
-    if entered_pass == STAFF_DATA[selected_name]["pass"]:
+    if 'logged_in_user' in st.session_state and st.session_state['logged_in_user'] == selected_name:
+        st.success(f"تم تسجيل الدخول بنجاح")
         st.header(f"👋 أهلاً {selected_name}")
         fin = get_active_financials(selected_name)
         weekly_salary = STAFF_DATA[selected_name]['salary']
@@ -81,10 +88,8 @@ if user_role == "موظف":
         col_m2.metric("إجمالي الخصم", f"{fin['discounts']:,}")
         col_m3.metric("الصافي الحالي", f"{net_salary:,}")
         
-        # --- قسم كشف الحساب التفصيلي للموظف ---
         with st.expander("📊 كشف حسابي التفصيلي (الغياب، المكافآت، الخصومات)"):
             if not fin['history'].empty:
-                # تصفية الجدول ليظهر الأشياء المهمة فقط
                 display_df = fin['history'][['data', 'type', 'discount', 'overtime']].copy()
                 display_df.columns = ["التاريخ/التفاصيل", "النوع", "خصم (-)", "إضافة (+)"]
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
@@ -125,9 +130,9 @@ if user_role == "موظف":
                 st.warning("تم الإرسال للمدير")
 
 elif user_role == "المدير":
-    if st.sidebar.text_input("رمز المدير:", type="password") == ADMIN_PASSWORD:
+    admin_pass = st.text_input("رمز المدير:", type="password")
+    if admin_pass == ADMIN_PASSWORD:
         st.header("👑 لوحة تحكم المدير")
-        # (قسم المدير يبقى كما هو بدون تغيير في المنطق لضمان الاستقرار)
         st.subheader("📩 طلبات معلقة")
         try:
             df_raw = pd.read_csv(f"{SHEET_CSV_URL}&t={time.time()}")
