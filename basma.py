@@ -82,12 +82,10 @@ if st.session_state['role'] == "موظف":
     st.header(f"👋 أهلاً {name}")
     
     df = fetch_and_clean_data()
-    # جلب السجلات التي تخص الموظف فقط (باستثناء الطلبات والأرشفة)
     user_records = df[(df['name'] == name) & (~df['type'].str.contains("طلب|مؤرشف", na=False))]
     
     salary = STAFF_DATA[name]['salary']
     total_disc = int(user_records['discount'].sum())
-    # الموظف يحسب فقط الراتب - الخصم (الأوفرتايم مخفي عنه تماماً)
     net_emp = salary - total_disc
 
     col1, col2, col3 = st.columns(3)
@@ -96,7 +94,6 @@ if st.session_state['role'] == "موظف":
     col3.metric("الصافي (بعد الخصم)", f"{net_emp:,}")
 
     with st.expander("📊 سجل الحركات المالية (خصومات ومكافآت)"):
-        # إظهار الخصومات والمكافآت اليدوية فقط (إخفاء نوع "انصراف" التلقائي)
         disp = user_records[user_records['type'] != "انصراف"].copy()
         if not disp.empty:
             disp = disp[['data', 'type', 'discount', 'overtime']]
@@ -144,17 +141,28 @@ elif st.session_state['role'] == "المدير":
         reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
         archived = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
         pending = reqs[~reqs['data'].isin(archived)]
-        for i, row in pending[::-1].iterrows():
-            with st.expander(f"📌 {row['name']} - {row['type']}"):
-                st.write(f"التفاصيل: {row['data']}")
-                if st.button("✅ موافقة وأرشفة", key=f"y{i}"):
-                    if "سلفة" in row['type']:
-                        send_to_google(row['name'], f"سلفة مقبول: {row['data']}", "00:00", "سلفة مقبولة", row['discount'], 0)
-                    send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
-                    st.cache_data.clear(); st.rerun()
+        
+        if not pending.empty:
+            for i, row in pending[::-1].iterrows():
+                with st.expander(f"📌 {row['name']} - {row['type']}"):
+                    st.write(f"التفاصيل: {row['data']}")
+                    c1, c2 = st.columns(2)
+                    
+                    # زر الموافقة: يؤرشف الطلب ويثبت الخصم المالي إذا كان سلفة
+                    if c1.button("✅ موافقة", key=f"y{i}"):
+                        if "سلفة" in row['type']:
+                            send_to_google(row['name'], f"سلفة مقبولة: {row['data']}", "00:00", "سلفة مقبولة", row['discount'], 0)
+                        send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
+                        st.cache_data.clear(); st.success("تمت الموافقة"); time.sleep(0.5); st.rerun()
+                    
+                    # زر الرفض: يؤرشف الطلب فقط (يخفيه) بدون أي إجراء مالي
+                    if c2.button("❌ رفض", key=f"n{i}"):
+                        send_to_google(row['name'], row['data'], "00:00", "مؤرشف", 0, 0)
+                        st.cache_data.clear(); st.error("تم رفض الطلب"); time.sleep(0.5); st.rerun()
+        else:
+            st.info("لا توجد طلبات معلقة حالياً.")
 
     st.divider()
-    # مكافأة وغياب
     cx, cy = st.columns(2)
     with cx:
         st.subheader("➕ مكافأة يدوية")
@@ -179,7 +187,6 @@ elif st.session_state['role'] == "المدير":
         for n, info in STAFF_DATA.items():
             d = int(totals.loc[n, 'discount']) if n in totals.index else 0
             o = int(totals.loc[n, 'overtime']) if n in totals.index else 0
-            # المدير فقط يرى الصافي الحقيقي (راتب - خصم + إضافي)
             sum_list.append({"الموظف": n, "الراتب": info['salary'], "الخصم": d, "الإضافي": o, "الصافي النهائي": info['salary'] - d + o})
         st.table(pd.DataFrame(sum_list))
 
