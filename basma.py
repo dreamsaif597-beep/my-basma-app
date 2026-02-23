@@ -6,7 +6,7 @@ import time
 
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
-SHOP_IP = "5.175.146.156" # IP راوتر المحل
+SHOP_IP = "35.197.92.111"  # الـ IP الجديد للمحل
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
@@ -22,7 +22,7 @@ STAFF_DATA = {
 # --- وظيفة جلب الـ IP للمستخدم ---
 def get_user_ip():
     try:
-        # نستخدم خدمة خارجية لجلب الـ IP العام للمستخدم
+        # جلب الـ IP العام للمستخدم للتأكد من اتصاله بالراوتر
         response = requests.get('https://api.ipify.org?format=json', timeout=3)
         return response.json()['ip']
     except:
@@ -46,16 +46,21 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 @st.cache_data(ttl=5)
 def fetch_and_clean_data():
     try:
+        # استخدام التوقيت الحالي لكسر الكاش لضمان أحدث البيانات
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
+        
         for col in ['name', 'type', 'data']:
             df[col] = df[col].fillna("").astype(str).str.strip()
+            
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
+        
         reset_indices = df[df['type'] == "تصفية أسبوعية"].index
         if not reset_indices.empty:
             last_reset = reset_indices.max()
             df = df.iloc[last_reset + 1:].reset_index(drop=True)
+            
         return df
     except Exception:
         return pd.DataFrame()
@@ -63,7 +68,7 @@ def fetch_and_clean_data():
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 
-# التحقق من الـ IP
+# جلب الـ IP الحالي فور تشغيل البرنامج
 current_ip = get_user_ip()
 
 if 'auth' not in st.session_state: st.session_state['auth'] = False
@@ -74,10 +79,10 @@ if not st.session_state['auth']:
     role = st.radio("الدخول كـ:", ["موظف", "المدير"], horizontal=True)
     
     if role == "موظف":
-        # فحص الـ IP للموظف فقط
+        # فحص الـ IP للموظف قبل السماح له بإدخال الرمز
         if current_ip != SHOP_IP and current_ip != "unknown":
-            st.error(f"🚫 عذراً، يجب الاتصال براوتر المحل لتتمكن من استخدام النظام.")
-            st.info(f"الـ IP الحالي لديك: {current_ip}")
+            st.error(f"🚫 الوصول محظور! يجب الاتصال براوتر المحل حصراً.")
+            st.info(f"الـ IP المرتبط بجهازك: {current_ip}")
             st.stop()
             
         user_sel = st.selectbox("اسم الموظف:", list(STAFF_DATA.keys()))
@@ -92,7 +97,7 @@ if not st.session_state['auth']:
                 st.rerun()
             else: st.error("الرمز خطأ!")
     else:
-        # المدير مسموح له يدخل من أي IP
+        # المدير يدخل من أي مكان
         admin_pass = st.text_input("رمز المدير:", type="password")
         if st.button("دخول المدير"):
             if admin_pass == ADMIN_PASSWORD:
@@ -101,7 +106,7 @@ if not st.session_state['auth']:
             else: st.error("الرمز خطأ!")
     st.stop()
 
-# --- القائمة الجانبية ---
+# --- القائمة الجانبية (تسجيل الخروج وزر التحديث) ---
 st.sidebar.button("🚪 تسجيل خروج", on_click=lambda: st.session_state.update({'auth': False}))
 if st.sidebar.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
@@ -109,9 +114,10 @@ if st.sidebar.button("🔄 تحديث البيانات"):
 
 # --- واجهة الموظف ---
 if st.session_state['role'] == "موظف":
-    # إعادة فحص الـ IP داخل واجهة الموظف لزيادة الأمان
+    # أمان إضافي: إعادة فحص الـ IP للتأكد أنه لم يغير الشبكة بعد الدخول
     if current_ip != SHOP_IP and current_ip != "unknown":
-        st.error("تم قطع الاتصال براوتر المحل. سجل خروجك.")
+        st.error("❌ تم قطع الاتصال بالشبكة المسموح بها.")
+        st.session_state.update({'auth': False})
         st.stop()
 
     name = st.session_state['user']
@@ -173,11 +179,13 @@ if st.session_state['role'] == "موظف":
 # --- واجهة المدير ---
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
+    
     if st.button("🔄 تحديث الكشوفات والطلبات"):
         st.cache_data.clear()
         st.rerun()
         
     df_raw = fetch_and_clean_data()
+    
     st.subheader("📩 الطلبات المعلقة")
     if not df_raw.empty:
         reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
@@ -228,6 +236,7 @@ elif st.session_state['role'] == "المدير":
         st.table(pd.DataFrame(sum_list))
 
     st.divider()
+    st.error("🚨 منطقة العمليات الحساسة")
     if st.button("🔄 تصفير الأسبوع بالكامل"):
         send_to_google("نظام", "تصفير شامل", "00:00", "تصفية أسبوعية", 0, 0)
         st.cache_data.clear()
