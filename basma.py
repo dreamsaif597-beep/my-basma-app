@@ -6,7 +6,7 @@ import time
 
 # --- الإعدادات الأساسية ---
 ADMIN_PASSWORD = "5566"
-FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
+FORM_URL = "https://docs.google.com/forms/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
 STAFF_DATA = {
@@ -59,25 +59,35 @@ def get_active_financials(name):
 # --- واجهة التطبيق الرئيسية ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered")
 
-# استخدام الراديو في الصفحة الرئيسية بدلاً من السايدبار لسهولة الوصول
 st.title("🏦 نظام بصمة البسمة")
 user_role = st.radio("اختر نوع الدخول:", ["موظف", "المدير"], horizontal=True)
 
 if user_role == "موظف":
     selected_name = st.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
-    entered_pass = st.text_input("الرمز السري:", type="password")
     
-    # خيار تسجيل الدخول
+    # استرجاع الرمز المحفوظ إذا كان الموظف اختار "تذكرني" سابقاً
+    saved_pass_key = f"saved_pass_{selected_name}"
+    default_pass = st.session_state.get(saved_pass_key, "")
+    
+    entered_pass = st.text_input("الرمز السري:", value=default_pass, type="password")
+    remember_me = st.checkbox("✅ تذكر الرمز السري على هذا الجهاز", value=True if default_pass else False)
+    
     login_btn = st.button("🔓 تسجيل دخول")
     
     if login_btn:
         if entered_pass == STAFF_DATA[selected_name]["pass"]:
             st.session_state['logged_in_user'] = selected_name
+            # إذا فعل خيار التذكر، نحفظ الرمز في السيشن
+            if remember_me:
+                st.session_state[saved_pass_key] = entered_pass
+            else:
+                if saved_pass_key in st.session_state:
+                    del st.session_state[saved_pass_key]
         else:
             st.error("الرمز السري غير صحيح!")
 
     if 'logged_in_user' in st.session_state and st.session_state['logged_in_user'] == selected_name:
-        st.success(f"تم تسجيل الدخول بنجاح")
+        st.success(f"تم تسجيل الدخول")
         st.header(f"👋 أهلاً {selected_name}")
         fin = get_active_financials(selected_name)
         weekly_salary = STAFF_DATA[selected_name]['salary']
@@ -94,7 +104,7 @@ if user_role == "موظف":
                 display_df.columns = ["التاريخ/التفاصيل", "النوع", "خصم (-)", "إضافة (+)"]
                 st.dataframe(display_df, use_container_width=True, hide_index=True)
             else:
-                st.info("لا توجد حركات مالية مسجلة لك هذا الأسبوع.")
+                st.info("لا توجد حركات مالية مسجلة.")
 
         st.divider()
         now = datetime.now()
