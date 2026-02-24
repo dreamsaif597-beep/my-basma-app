@@ -36,7 +36,7 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
 @st.cache_data(ttl=5)
 def fetch_and_clean_data():
     try:
-        # استخدام التوقيت الحالي لكسر الكاش
+        # كسر الكاش لضمان جلب أحدث البيانات
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
         
@@ -46,6 +46,7 @@ def fetch_and_clean_data():
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
         
+        # منطق التصفية الأسبوعية
         reset_indices = df[df['type'] == "تصفية أسبوعية"].index
         if not reset_indices.empty:
             last_reset = reset_indices.max()
@@ -84,7 +85,7 @@ if not st.session_state['auth']:
             else: st.error("الرمز خطأ!")
     st.stop()
 
-# --- القائمة الجانبية (تسجيل الخروج وزر التحديث العام) ---
+# --- القائمة الجانبية ---
 st.sidebar.button("🚪 تسجيل خروج", on_click=lambda: st.session_state.update({'auth': False}))
 if st.sidebar.button("🔄 تحديث البيانات"):
     st.cache_data.clear()
@@ -108,37 +109,56 @@ if st.session_state['role'] == "موظف":
     col2.metric("الخصومات", f"{total_disc:,}")
     col3.metric("الصافي", f"{net_emp:,}")
 
+    st.divider()
+    now = datetime.now()
+    c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+
+    btn1, btn2 = st.columns(2)
+    
+    # تسجيل الحضور مع حساب التأخير
+    if btn1.button("📥 تسجيل حضور"):
+        emp = STAFF_DATA[name]
+        start_t_str = emp['start'] if emp['type'] == 'single' else emp['s1']
+        
+        t_now = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
+        t_start = datetime.strptime(start_t_str, "%H:%M")
+        
+        disc = 0
+        if t_now > t_start:
+            diff_min = (t_now - t_start).total_seconds() / 60
+            if diff_min > 5: # سماح 5 دقائق
+                disc = int(diff_min * 200)
+        
+        send_to_google(name, c_date, c_time, "حضور", disc, 0)
+        st.cache_data.clear()
+        st.success(f"تم تسجيل الحضور. الخصم: {disc:,}")
+        time.sleep(1); st.rerun()
+
+    # تسجيل الانصراف مع حساب الإضافي
+    if btn2.button("📤 تسجيل انصراف"):
+        emp = STAFF_DATA[name]
+        end_t_str = emp['end'] if emp['type'] == 'single' else emp['e2']
+        
+        t_now = datetime.strptime(now.strftime("%H:%M"), "%H:%M")
+        t_end = datetime.strptime(end_t_str, "%H:%M")
+        
+        ov = 0
+        if t_now > t_end:
+            diff_ov = (t_now - t_end).total_seconds() / 60
+            if diff_ov > 1:
+                ov = int(diff_ov * 100)
+        
+        send_to_google(name, c_date, c_time, "انصراف", 0, ov)
+        st.cache_data.clear()
+        st.info(f"تم تسجيل الانصراف. الإضافي: {ov:,}")
+        time.sleep(1); st.rerun()
+
     with st.expander("📊 سجل الحركات (هذا الأسبوع)"):
         disp = user_records[user_records['type'] != "انصراف"].copy()
         if not disp.empty:
             disp = disp[['data', 'type', 'discount', 'overtime']]
             disp.columns = ["التاريخ", "النوع", "خصم", "مكافأة"]
             st.dataframe(disp, use_container_width=True, hide_index=True)
-        else:
-            st.info("لا توجد حركات مالية مسجلة.")
-
-    st.divider()
-    now = datetime.now()
-    c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-
-    btn1, btn2 = st.columns(2)
-    if btn1.button("📥 تسجيل حضور"):
-        emp = STAFF_DATA[name]
-        start_t = emp['start'] if emp['type'] == 'single' else emp['s1']
-        diff = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(start_t, "%H:%M")).total_seconds() / 60
-        disc = int(diff * 200) if diff > 5 else 0
-        send_to_google(name, c_date, c_time, "حضور", disc, 0)
-        st.cache_data.clear()
-        st.success(f"تم تسجيل الحضور. الخصم: {disc}"); time.sleep(1); st.rerun()
-
-    if btn2.button("📤 تسجيل انصراف"):
-        emp = STAFF_DATA[name]
-        end_t = emp['end'] if emp['type'] == 'single' else emp['e2']
-        diff_ov = (datetime.strptime(now.strftime("%H:%M"), "%H:%M") - datetime.strptime(end_t, "%H:%M")).total_seconds() / 60
-        ov = int(diff_ov * 100) if diff_ov > 1 else 0
-        send_to_google(name, c_date, c_time, "انصراف", 0, ov)
-        st.cache_data.clear()
-        st.info("تم تسجيل الانصراف"); time.sleep(1); st.rerun()
 
     with st.expander("📝 طلب سلفة أو إجازة"):
         t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
@@ -152,7 +172,6 @@ if st.session_state['role'] == "موظف":
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
     
-    # إضافة زر تحديث سريع في أعلى لوحة المدير
     if st.button("🔄 تحديث الكشوفات والطلبات"):
         st.cache_data.clear()
         st.rerun()
