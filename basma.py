@@ -9,7 +9,7 @@ ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
-# حفظ بيانات الموظفين في الـ session_state لتمكين التعديل والإضافة
+# حفظ بيانات الموظفين في الـ session_state لتمكين التعديل والإضافة الدائمية داخل الجلسة
 if 'staff_registry' not in st.session_state:
     st.session_state['staff_registry'] = {
         "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
@@ -125,7 +125,6 @@ if st.session_state['role'] == "موظف":
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
     
-    # قسم إدارة الموظفين الجديد
     with st.expander("👤 إدارة الموظفين (إضافة/تعديل أوقات)"):
         mode = st.radio("العملية:", ["تعديل موظف حالي", "إضافة موظف جديد"], horizontal=True)
         
@@ -133,25 +132,30 @@ elif st.session_state['role'] == "المدير":
             target = st.selectbox("اختر الموظف للتعديل:", list(STAFF_DATA.keys()))
             emp_data = STAFF_DATA[target]
             
-            new_salary = st.number_input("الراتب:", value=emp_data['salary'], step=5000)
-            new_pass = st.text_input("الرمز السري:", value=emp_data['pass'])
+            # استخدام keys فريدة لكل مدخل لضمان عدم التداخل
+            new_salary = st.number_input("الراتب الجديد:", value=emp_data['salary'], step=5000, key=f"sal_{target}")
+            new_pass = st.text_input("الرمز السري الجديد:", value=emp_data['pass'], key=f"pass_{target}")
             
             if emp_data['type'] == 'single':
                 c1, c2 = st.columns(2)
-                new_start = c1.text_input("وقت الحضور (HH:MM):", value=emp_data['start'])
-                new_end = c2.text_input("وقت الانصراف (HH:MM):", value=emp_data['end'])
+                new_start = c1.text_input("وقت الحضور:", value=emp_data['start'], key=f"start_{target}")
+                new_end = c2.text_input("وقت الانصراف:", value=emp_data['end'], key=f"end_{target}")
                 if st.button("حفظ التعديلات"):
-                    STAFF_DATA[target].update({"salary": new_salary, "pass": new_pass, "start": new_start, "end": new_end})
-                    st.success("تم التحديث!")
+                    st.session_state['staff_registry'][target].update({
+                        "salary": new_salary, "pass": new_pass, "start": new_start, "end": new_end
+                    })
+                    st.success(f"تم تحديث بيانات {target}"); time.sleep(1); st.rerun()
             else:
                 c1, c2, c3, c4 = st.columns(4)
-                ns1 = c1.text_input("حضور 1:", value=emp_data['s1'])
-                ne1 = c2.text_input("انصراف 1:", value=emp_data['e1'])
-                ns2 = c3.text_input("حضور 2:", value=emp_data['s2'])
-                ne2 = c4.text_input("انصراف 2:", value=emp_data['e2'])
+                ns1 = c1.text_input("حضور 1:", value=emp_data['s1'], key=f"s1_{target}")
+                ne1 = c2.text_input("انصراف 1:", value=emp_data['e1'], key=f"e1_{target}")
+                ns2 = c3.text_input("حضور 2:", value=emp_data['s2'], key=f"s2_{target}")
+                ne2 = c4.text_input("انصراف 2:", value=emp_data['e2'], key=f"e2_{target}")
                 if st.button("حفظ التعديلات"):
-                    STAFF_DATA[target].update({"salary": new_salary, "pass": new_pass, "s1": ns1, "e1": ne1, "s2": ns2, "e2": ne2})
-                    st.success("تم التحديث!")
+                    st.session_state['staff_registry'][target].update({
+                        "salary": new_salary, "pass": new_pass, "s1": ns1, "e1": ne1, "s2": ns2, "e2": ne2
+                    })
+                    st.success(f"تم تحديث بيانات {target}"); time.sleep(1); st.rerun()
 
         else:
             new_name = st.text_input("اسم الموظف الجديد:")
@@ -159,17 +163,17 @@ elif st.session_state['role'] == "المدير":
             n_pass = st.text_input("الرمز السري:")
             n_type = st.selectbox("نوع الدوام:", ["single", "double"])
             if st.button("إضافة الموظف"):
-                if n_type == "single":
-                    STAFF_DATA[new_name] = {"salary": n_sal, "pass": n_pass, "start": "15:00", "end": "22:00", "type": "single"}
-                else:
-                    STAFF_DATA[new_name] = {"salary": n_sal, "pass": n_pass, "s1": "10:00", "e1": "14:00", "s2": "16:00", "e2": "22:00", "type": "double"}
-                st.success(f"تمت إضافة {new_name} بنجاح!")
-                st.rerun()
+                if new_name and new_name not in STAFF_DATA:
+                    if n_type == "single":
+                        st.session_state['staff_registry'][new_name] = {"salary": n_sal, "pass": n_pass, "start": "15:00", "end": "22:00", "type": "single"}
+                    else:
+                        st.session_state['staff_registry'][new_name] = {"salary": n_sal, "pass": n_pass, "s1": "10:00", "e1": "14:00", "s2": "16:00", "e2": "22:00", "type": "double"}
+                    st.success(f"تمت إضافة {new_name} بنجاح!"); time.sleep(1); st.rerun()
+                else: st.error("الاسم موجود أو حقل فارغ!")
 
     st.divider()
     df_raw = fetch_and_clean_data()
     
-    # الطلبات والمكافآت (نفس الكود السابق لضمان الاستقرار)
     st.subheader("📩 طلبات الموظفين")
     reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
     archived = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
