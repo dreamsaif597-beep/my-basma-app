@@ -16,7 +16,7 @@ STAFF_DATA = {
     "حارث": {"salary": 135000, "pass": os.getenv("HARITH_PASS", "1144"), "start": "15:00", "end": "22:00", "type": "single"},
     "ياسر": {"salary": 115000, "pass": os.getenv("YASIR_PASS", "1155"), "s1": "10:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
     "صادق": {"salary": 75000, "pass": os.getenv("SADIQ_PASS", "1166"), "start": "15:00", "end": "22:30", "type": "single"},
-    "كرار": {"salary": 75000, "pass": os.getenv("KARRAR_PASS", "1177"), "start": "15:00", "end": "22:30", "type": "single"},
+    "كرار": {"salary": 75000, "pass": os.getenv("KARRAR_PASS", "1177"), "start": "16:00", "end": "22:30", "type": "single"},
 }
 
 FORM_URL = os.getenv("FORM_URL", "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse")
@@ -373,3 +373,4 @@ elif st.session_state['role'] == "المدير":
 # --- تذييل الصفحة ---
 st.divider()
 st.caption(f"آخر تحديث: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | نظام بصمة البسمة © 2024")
+
