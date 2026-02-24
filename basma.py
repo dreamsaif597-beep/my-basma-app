@@ -9,19 +9,22 @@ ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
-STAFF_DATA = {
-    "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
-    "فؤاد": {"salary": 165000, "pass": "1133", "s1": "10:20", "e1": "15:00", "s2": "17:20", "e2": "22:00", "type": "double"},
-    "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "22:00", "type": "single"},
-    "ياسر": {"salary": 115000, "pass": "1155", "s1": "10:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
-    "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
-    "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
-}
+# حفظ بيانات الموظفين في الـ session_state لتمكين التعديل والإضافة
+if 'staff_registry' not in st.session_state:
+    st.session_state['staff_registry'] = {
+        "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
+        "فؤاد": {"salary": 165000, "pass": "1133", "s1": "10:20", "e1": "15:00", "s2": "17:20", "e2": "22:00", "type": "double"},
+        "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "22:00", "type": "single"},
+        "ياسر": {"salary": 115000, "pass": "1155", "s1": "10:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
+        "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
+        "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
+    }
+
+STAFF_DATA = st.session_state['staff_registry']
 
 def get_iraq_time():
     return datetime.utcnow() + timedelta(hours=3)
 
-# --- الوظائف المساعدة ---
 def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     payload = {
         "entry.104291709": name,      
@@ -43,7 +46,6 @@ def fetch_and_clean_data():
             df[col] = df[col].fillna("").astype(str).str.strip()
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
-        
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
@@ -83,11 +85,8 @@ if st.sidebar.button("🔄 تحديث"):
 if st.session_state['role'] == "موظف":
     name = st.session_state['user']
     st.header(f"👋 أهلاً {name}")
-    
     df = fetch_and_clean_data()
-    # جلب السجل المالي (بصمة، غياب، سلفة مقبولة، مكافأة)
     user_records = df[(df['name'] == name) & (~df['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"]))]
-    
     salary = STAFF_DATA[name]['salary']
     total_disc = int(user_records['discount'].sum())
     total_ov = int(user_records['overtime'].sum())
@@ -122,19 +121,55 @@ if st.session_state['role'] == "موظف":
         if not user_records.empty:
             st.dataframe(user_records[['data', 'type', 'discount', 'overtime']], hide_index=True, use_container_width=True)
 
-    with st.expander("📝 طلب سلفة أو إجازة"):
-        t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
-        amt_req = st.number_input("المبلغ (إذا سلفة)", min_value=0, step=1000)
-        reason = st.text_input("السبب")
-        if st.button("إرسال الطلب"):
-            send_to_google(name, f"{reason}", c_date, f"طلب {t_req}", amt_req, 0)
-            st.warning("تم إرسال الطلب")
-
 # --- واجهة المدير ---
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
+    
+    # قسم إدارة الموظفين الجديد
+    with st.expander("👤 إدارة الموظفين (إضافة/تعديل أوقات)"):
+        mode = st.radio("العملية:", ["تعديل موظف حالي", "إضافة موظف جديد"], horizontal=True)
+        
+        if mode == "تعديل موظف حالي":
+            target = st.selectbox("اختر الموظف للتعديل:", list(STAFF_DATA.keys()))
+            emp_data = STAFF_DATA[target]
+            
+            new_salary = st.number_input("الراتب:", value=emp_data['salary'], step=5000)
+            new_pass = st.text_input("الرمز السري:", value=emp_data['pass'])
+            
+            if emp_data['type'] == 'single':
+                c1, c2 = st.columns(2)
+                new_start = c1.text_input("وقت الحضور (HH:MM):", value=emp_data['start'])
+                new_end = c2.text_input("وقت الانصراف (HH:MM):", value=emp_data['end'])
+                if st.button("حفظ التعديلات"):
+                    STAFF_DATA[target].update({"salary": new_salary, "pass": new_pass, "start": new_start, "end": new_end})
+                    st.success("تم التحديث!")
+            else:
+                c1, c2, c3, c4 = st.columns(4)
+                ns1 = c1.text_input("حضور 1:", value=emp_data['s1'])
+                ne1 = c2.text_input("انصراف 1:", value=emp_data['e1'])
+                ns2 = c3.text_input("حضور 2:", value=emp_data['s2'])
+                ne2 = c4.text_input("انصراف 2:", value=emp_data['e2'])
+                if st.button("حفظ التعديلات"):
+                    STAFF_DATA[target].update({"salary": new_salary, "pass": new_pass, "s1": ns1, "e1": ne1, "s2": ns2, "e2": ne2})
+                    st.success("تم التحديث!")
+
+        else:
+            new_name = st.text_input("اسم الموظف الجديد:")
+            n_sal = st.number_input("الراتب:", min_value=0, step=5000)
+            n_pass = st.text_input("الرمز السري:")
+            n_type = st.selectbox("نوع الدوام:", ["single", "double"])
+            if st.button("إضافة الموظف"):
+                if n_type == "single":
+                    STAFF_DATA[new_name] = {"salary": n_sal, "pass": n_pass, "start": "15:00", "end": "22:00", "type": "single"}
+                else:
+                    STAFF_DATA[new_name] = {"salary": n_sal, "pass": n_pass, "s1": "10:00", "e1": "14:00", "s2": "16:00", "e2": "22:00", "type": "double"}
+                st.success(f"تمت إضافة {new_name} بنجاح!")
+                st.rerun()
+
+    st.divider()
     df_raw = fetch_and_clean_data()
     
+    # الطلبات والمكافآت (نفس الكود السابق لضمان الاستقرار)
     st.subheader("📩 طلبات الموظفين")
     reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
     archived = df_raw[df_raw['type'] == "مؤرشف"]['data'].tolist()
@@ -143,7 +178,7 @@ elif st.session_state['role'] == "المدير":
     if not pending.empty:
         for i, row in pending[::-1].iterrows():
             with st.expander(f"📌 {row['name']} - {row['type']}"):
-                st.write(f"التفاصيل: {row['data']} | المبلغ المطلبو: {row['discount']}")
+                st.write(f"التفاصيل: {row['data']} | المبلغ: {row['discount']}")
                 ca, cb = st.columns(2)
                 if ca.button("✅ موافقة", key=f"y{i}"):
                     if "سلفة" in row['type']:
@@ -153,7 +188,7 @@ elif st.session_state['role'] == "المدير":
                 if cb.button("❌ رفض", key=f"n{i}"):
                     send_to_google(row['name'], row['data'], "---", "مؤرشف", 0, 0)
                     st.cache_data.clear(); st.rerun()
-    
+
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
@@ -162,14 +197,14 @@ elif st.session_state['role'] == "المدير":
         a_m = st.number_input("المبلغ", step=1000, key="am")
         if st.button("إضافة مكافأة"):
             send_to_google(e_m, "مكافأة يدوية", "---", "مكافأة", 0, a_m)
-            st.cache_data.clear(); st.success("تمت"); time.sleep(1); st.rerun()
+            st.cache_data.clear(); st.rerun()
     with c2:
         st.subheader("🚫 غياب")
         e_g = st.selectbox("الموظف", list(STAFF_DATA.keys()), key="g")
         a_g = st.number_input("مبلغ الخصم", step=1000, value=15000, key="ag")
         if st.button("تسجيل الخصم"):
             send_to_google(e_g, "غياب يدوي", "---", "غياب", a_g, 0)
-            st.cache_data.clear(); st.error("تم الخصم"); time.sleep(1); st.rerun()
+            st.cache_data.clear(); st.rerun()
 
     st.divider()
     if st.button("📊 عرض كشف الرواتب"):
