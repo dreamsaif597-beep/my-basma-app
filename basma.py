@@ -37,7 +37,7 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
     try: requests.post(FORM_URL, data=payload, timeout=7)
     except: st.error("فشل الاتصال بجوجل")
 
-@st.cache_data(ttl=2) # تقليل الكاش لضمان سرعة ظهور الطلبات
+@st.cache_data(ttl=2)
 def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
@@ -47,7 +47,6 @@ def fetch_and_clean_data():
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
         
-        # التصفية الأسبوعية
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
@@ -88,15 +87,20 @@ if st.session_state['role'] == "موظف":
     name = st.session_state['user']
     st.header(f"👋 أهلاً {name}")
     df = fetch_and_clean_data()
+    
+    # السجلات التي تظهر للموظف (بدون المراجعات الإدارية)
     user_records = df[(df['name'] == name) & (~df['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"]))]
+    
     salary = STAFF_DATA[name]['salary']
     total_disc = int(user_records['discount'].sum())
-    total_ov = int(user_records['overtime'].sum())
+    # حساب المكافآت اليدوية فقط وحجب الأوفر تايم التلقائي
+    manual_bonus = int(user_records[user_records['type'] == "مكافأة"]['overtime'].sum())
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("الراتب", f"{salary:,}")
-    c2.metric("الخصم/السلف", f"{total_disc:,}")
-    c3.metric("الصافي", f"{salary - total_disc + total_ov:,}")
+    c1.metric("الراتب الأسبوعي", f"{salary:,}")
+    c2.metric("إجمالي الخصومات", f"{total_disc:,}")
+    # الصافي هنا لا يشمل الأوفر تايم التلقائي بناءً على طلبك
+    c3.metric("الصافي (بدون إضافي)", f"{salary - total_disc + manual_bonus:,}")
 
     st.divider()
     now = get_iraq_time()
@@ -117,7 +121,16 @@ if st.session_state['role'] == "موظف":
         t_end = datetime.strptime(end_t_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
         ov = int((now - t_end).total_seconds() / 60 * 100) if now > t_end + timedelta(minutes=1) else 0
         send_to_google(name, c_date, c_time, "انصراف", 0, ov)
-        st.cache_data.clear(); st.info(f"تم الانصراف. الإضافي: {ov:,}"); time.sleep(1); st.rerun()
+        st.cache_data.clear(); st.info("تم تسجيل الانصراف"); time.sleep(1); st.rerun()
+
+    # استرجاع سجل النشاطات للموظف
+    with st.expander("📊 سجل نشاطاتي"):
+        if not user_records.empty:
+            # عرض التوع والخصم والمكافأة فقط (بدون عمود الأوفر تايم الصريح)
+            display_df = user_records.copy()
+            display_df = display_df[['data', 'type', 'discount', 'overtime']]
+            display_df.columns = ['التاريخ/الوقت', 'النوع', 'الخصم', 'المكافأة']
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
 
     with st.expander("📝 طلب سلفة أو إجازة"):
         t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
@@ -131,7 +144,6 @@ if st.session_state['role'] == "موظف":
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
     
-    # قسم إدارة الموظفين
     with st.expander("👤 إدارة الموظفين (تعديل الأوقات والرواتب)"):
         mode = st.radio("العملية:", ["تعديل موظف حالي", "إضافة موظف جديد"], horizontal=True)
         if mode == "تعديل موظف حالي":
@@ -167,7 +179,6 @@ elif st.session_state['role'] == "المدير":
     st.divider()
     df_raw = fetch_and_clean_data()
     
-    # --- إصلاح عرض الطلبات ---
     st.subheader("📩 طلبات الموظفين")
     if not df_raw.empty:
         reqs = df_raw[df_raw['type'].str.contains("طلب", na=False)]
@@ -187,7 +198,6 @@ elif st.session_state['role'] == "المدير":
                     if cb.button("❌ رفض", key=f"n{i}"):
                         send_to_google(row['name'], row['data'], "---", "مؤرشف", 0, 0)
                         st.cache_data.clear(); st.rerun()
-        else: st.info("لا توجد طلبات معلقة")
 
     st.divider()
     c1, c2 = st.columns(2)
