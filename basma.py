@@ -42,7 +42,7 @@ def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
-        for col in ['name', 'type', 'data']:
+        for col in ['name', 'type', 'data', 'time']:
             df[col] = df[col].fillna("").astype(str).str.strip()
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
@@ -88,19 +88,20 @@ if st.session_state['role'] == "موظف":
     st.header(f"👋 أهلاً {name}")
     df = fetch_and_clean_data()
     
-    # السجلات التي تظهر للموظف (بدون المراجعات الإدارية)
+    # فلترة السجلات (استثناء الطلبات والمؤرشف)
     user_records = df[(df['name'] == name) & (~df['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"]))]
     
     salary = STAFF_DATA[name]['salary']
     total_disc = int(user_records['discount'].sum())
-    # حساب المكافآت اليدوية فقط وحجب الأوفر تايم التلقائي
-    manual_bonus = int(user_records[user_records['type'] == "مكافأة"]['overtime'].sum())
+    
+    # حساب المكافآت اليدوية فقط (التي نوعها "مكافأة") وتجاهل الأوفر تايم التلقائي
+    manual_bonuses = int(user_records[user_records['type'] == "مكافأة"]['overtime'].sum())
     
     c1, c2, c3 = st.columns(3)
-    c1.metric("الراتب الأسبوعي", f"{salary:,}")
-    c2.metric("إجمالي الخصومات", f"{total_disc:,}")
-    # الصافي هنا لا يشمل الأوفر تايم التلقائي بناءً على طلبك
-    c3.metric("الصافي (بدون إضافي)", f"{salary - total_disc + manual_bonus:,}")
+    c1.metric("الراتب", f"{salary:,}")
+    c2.metric("الخصم/السلف", f"{total_disc:,}")
+    # الصافي يحسب (الراتب - الخصم + المكافأة اليدوية) فقط
+    c3.metric("الصافي", f"{salary - total_disc + manual_bonuses:,}")
 
     st.divider()
     now = get_iraq_time()
@@ -120,17 +121,24 @@ if st.session_state['role'] == "موظف":
         end_t_str = emp['end'] if emp['type'] == 'single' else emp['e2']
         t_end = datetime.strptime(end_t_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
         ov = int((now - t_end).total_seconds() / 60 * 100) if now > t_end + timedelta(minutes=1) else 0
+        # الأوفر تايم يرسل لجوجل لكنه لا يظهر في واجهة الموظف
         send_to_google(name, c_date, c_time, "انصراف", 0, ov)
         st.cache_data.clear(); st.info("تم تسجيل الانصراف"); time.sleep(1); st.rerun()
 
-    # استرجاع سجل النشاطات للموظف
-    with st.expander("📊 سجل نشاطاتي"):
+    # --- كشف الموظف (عرض التاريخ والوقت) ---
+    with st.expander("📊 سجل الحركات (التوقيتات والخصومات)"):
         if not user_records.empty:
-            # عرض التوع والخصم والمكافأة فقط (بدون عمود الأوفر تايم الصريح)
-            display_df = user_records.copy()
-            display_df = display_df[['data', 'type', 'discount', 'overtime']]
-            display_df.columns = ['التاريخ/الوقت', 'النوع', 'الخصم', 'المكافأة']
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
+            view_df = user_records.copy()
+            # دمج التاريخ والوقت في عمود واحد للعرض
+            view_df['التاريخ والوقت'] = view_df['data'] + " | " + view_df['time']
+            # اختيار المكافأة اليدوية فقط لعرضها في عمود المكافأة
+            view_df['المكافأة'] = view_df.apply(lambda x: x['overtime'] if x['type'] == "مكافأة" else 0, axis=1)
+            
+            final_view = view_df[['التاريخ والوقت', 'type', 'discount', 'المكافأة']]
+            final_view.columns = ['التاريخ والوقت', 'العملية', 'الخصم', 'المكافأة']
+            st.table(final_view)
+        else:
+            st.info("لا توجد حركات مسجلة حالياً")
 
     with st.expander("📝 طلب سلفة أو إجازة"):
         t_req = st.selectbox("النوع", ["إجازة", "سلفة"])
@@ -144,7 +152,7 @@ if st.session_state['role'] == "موظف":
 elif st.session_state['role'] == "المدير":
     st.header("👑 لوحة المدير")
     
-    with st.expander("👤 إدارة الموظفين (تعديل الأوقات والرواتب)"):
+    with st.expander("👤 إدارة الموظفين"):
         mode = st.radio("العملية:", ["تعديل موظف حالي", "إضافة موظف جديد"], horizontal=True)
         if mode == "تعديل موظف حالي":
             target = st.selectbox("اختر الموظف:", list(STAFF_DATA.keys()))
