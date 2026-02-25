@@ -17,7 +17,7 @@ if 'staff_registry' not in st.session_state:
         "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "22:00", "type": "single"},
         "ياسر": {"salary": 115000, "pass": "1155", "s1": "10:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
         "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
-        "كرار": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
+        "كرار": {"salary": 75000, "pass": "1177", "start": "16:00", "end": "22:30", "type": "single"},
     }
 
 STAFF_DATA = st.session_state['staff_registry']
@@ -238,3 +238,4 @@ elif st.session_state['role'] == "المدير":
     if st.button("🔄 تصفير الأسبوع"):
         send_to_google("نظام", "تصفير", "00:00", "تصفية أسبوعية", 0, 0)
         st.cache_data.clear(); st.balloons(); st.rerun()
+
