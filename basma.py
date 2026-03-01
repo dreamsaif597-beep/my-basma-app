@@ -14,10 +14,10 @@ if 'staff_registry' not in st.session_state:
     st.session_state['staff_registry'] = {
         "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
         "فؤاد": {"salary": 165000, "pass": "1133", "s1": "12:00", "e1": "15:00", "s2": "17:20", "e2": "22:00", "type": "double"},
-        "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "22:00", "type": "single"},
+        "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "23:00", "type": "single"},
         "ياسر": {"salary": 115000, "pass": "1155", "s1": "13:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
-        "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
-        "كرار": {"salary": 75000, "pass": "1177", "start": "16:00", "end": "22:30", "type": "single"},
+        "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "23:30", "type": "single"},
+        "علي ماجد": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "23:30", "type": "single"},
     }
 
 STAFF_DATA = st.session_state['staff_registry']
@@ -112,7 +112,7 @@ if st.session_state['role'] == "موظف":
         emp = STAFF_DATA[name]
         start_t_str = emp['start'] if emp['type'] == 'single' else emp['s1']
         t_start = datetime.strptime(start_t_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        disc = int((now - t_start).total_seconds() / 60 * 200) if now > t_start + timedelta(minutes=5) else 0
+        disc = int((now - t_start).total_seconds() / 60 * 150) if now > t_start + timedelta(minutes=5) else 0
         send_to_google(name, c_date, c_time, "حضور", disc, 0)
         st.cache_data.clear(); st.success(f"تم الحضور. الخصم: {disc:,}"); time.sleep(1); st.rerun()
 
@@ -238,6 +238,7 @@ elif st.session_state['role'] == "المدير":
     if st.button("🔄 تصفير الأسبوع"):
         send_to_google("نظام", "تصفير", "00:00", "تصفية أسبوعية", 0, 0)
         st.cache_data.clear(); st.balloons(); st.rerun()
+
 
 
 
