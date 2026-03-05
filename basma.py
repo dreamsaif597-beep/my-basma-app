@@ -112,7 +112,7 @@ if st.session_state['role'] == "موظف":
         emp = STAFF_DATA[name]
         start_t_str = emp['start'] if emp['type'] == 'single' else emp['s1']
         t_start = datetime.strptime(start_t_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        disc = int((now - t_start).total_seconds() / 60 * 150) if now > t_start + timedelta(minutes=5) else 0
+        disc = int((now - t_start).total_seconds() / 60 * 100) if now > t_start + timedelta(minutes=5) else 0
         send_to_google(name, c_date, c_time, "حضور", disc, 0)
         st.cache_data.clear(); st.success(f"تم الحضور. الخصم: {disc:,}"); time.sleep(1); st.rerun()
 
@@ -238,6 +238,7 @@ elif st.session_state['role'] == "المدير":
     if st.button("🔄 تصفير الأسبوع"):
         send_to_google("نظام", "تصفير", "00:00", "تصفية أسبوعية", 0, 0)
         st.cache_data.clear(); st.balloons(); st.rerun()
+
 
 
 
