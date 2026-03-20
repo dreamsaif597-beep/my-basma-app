@@ -13,11 +13,11 @@ SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qt
 if 'staff_registry' not in st.session_state:
     st.session_state['staff_registry'] = {
         "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
-        "فؤاد": {"salary": 165000, "pass": "1133", "s1": "12:00", "e1": "15:00", "s2": "17:20", "e2": "22:00", "type": "double"},
-        "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "23:00", "type": "single"},
-        "ياسر": {"salary": 115000, "pass": "1155", "s1": "13:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
-        "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "23:30", "type": "single"},
-        "علي ماجد": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "23:30", "type": "single"},
+        "فؤاد": {"salary": 165000, "pass": "1133", "s1": "10:20", "e1": "15:00", "s2": "17:20", "e2": "22:00", "type": "double"},
+        "حارث": {"salary": 135000, "pass": "1144", "start": "15:00", "end": "22:00", "type": "single"},
+        "ياسر": {"salary": 115000, "pass": "1155", "s1": "10:00", "e1": "13:00", "s2": "15:00", "e2": "23:00", "type": "double"},
+        "صادق": {"salary": 75000, "pass": "1166", "start": "15:00", "end": "22:30", "type": "single"},
+        "علي ماجد": {"salary": 75000, "pass": "1177", "start": "15:00", "end": "22:30", "type": "single"},
     }
 
 STAFF_DATA = st.session_state['staff_registry']
