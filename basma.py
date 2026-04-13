@@ -205,15 +205,30 @@ hr {
     color: #fcd34d !important;
 }
 
-/* --- السايدبار --- */
-[data-testid="stSidebar"] {
-    background: var(--bg-card) !important;
-    border-left: 1px solid var(--border) !important;
+/* --- إخفاء السايدبار نهائياً --- */
+[data-testid="stSidebar"],
+[data-testid="collapsedControl"],
+section[data-testid="stSidebar"] {
+    display: none !important;
+    width: 0 !important;
 }
-[data-testid="stSidebar"] .stButton > button {
+
+/* --- أزرار الخروج والتحديث --- */
+.top-action-btn button {
     background: var(--bg-card2) !important;
-    box-shadow: none !important;
     border: 1px solid var(--border) !important;
+    box-shadow: none !important;
+    padding: 0.35rem 0.9rem !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+    width: auto !important;
+}
+.top-action-btn button:hover {
+    border-color: var(--accent) !important;
+    color: var(--text-primary) !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
 
 /* --- عنوان الصفحة الرئيسي --- */
@@ -347,8 +362,11 @@ if not st.session_state['auth']:
             else: st.error("الرمز خطأ!")
     st.stop()
 
-st.sidebar.button("🚪 خروج", on_click=lambda: st.session_state.update({'auth': False}))
-if st.sidebar.button("🔄 تحديث البيانات"):
+col_logout, col_refresh, col_spacer = st.columns([1, 1, 4])
+if col_logout.button("🚪 خروج"):
+    st.session_state.update({'auth': False})
+    st.rerun()
+if col_refresh.button("🔄 تحديث"):
     st.cache_data.clear()
     st.rerun()
 
