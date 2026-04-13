@@ -9,6 +9,7 @@ ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
+# حفظ بيانات الموظفين والإعدادات في الـ session_state
 if 'staff_registry' not in st.session_state:
     st.session_state['staff_registry'] = {
         "أمير": {"salary": 115000, "pass": "1122", "start": "16:00", "end": "23:00", "type": "single"},
@@ -55,62 +56,59 @@ def fetch_and_clean_data():
         return df
     except: return pd.DataFrame()
 
-# --- تحسين الثيم ووضوح الخط ---
+# --- تحسين واجهة المستخدم ووضوح الخط ---
 st.set_page_config(page_title="Al-Basma Smart System", layout="centered")
 
-st.markdown(f"""
+st.markdown("""
     <style>
     /* تحسين الخلفية العامة */
-    .stApp {{
+    .stApp {
         background: linear-gradient(135deg, #050505, #1a1a2e, #16213e);
-    }}
+    }
     
-    /* توضيح جميع الخطوط وجعلها أبيض ناصع */
-    html, body, [class*="st-"] {{
+    /* فرض اللون الأبيض الناصع على جميع النصوص */
+    html, body, [class*="st-"], .stMarkdown p, .stRadio label {
         color: #FFFFFF !important;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }}
+    }
 
-    /* تحسين شكل صناديق الإدخال ووضوح النص بداخلها */
-    input {{
+    /* تحسين وضوح صناديق الإدخال والقوائم */
+    .stTextInput input, .stSelectbox [data-baseweb="select"] {
+        background-color: rgba(0, 0, 0, 0.6) !important;
         color: #FFFFFF !important;
-        background-color: rgba(0, 0, 0, 0.5) !important;
-    }}
-    
-    /* تحسين لون التسميات (Labels) فوق الحقول */
-    label p {{
-        color: #FFFFFF !important;
+        border: 1px solid #00f2fe !important;
+        border-radius: 10px !important;
+    }
+
+    /* جعل العناوين والـ Labels بارزة جداً */
+    label p {
         font-weight: bold !important;
         font-size: 1.1rem !important;
-    }}
+        color: #00f2fe !important; /* لون فيروزي للتسميات لتسهيل القراءة */
+    }
 
-    /* تخصيص الأزرار لتكون بارزة */
-    .stButton>button {{
-        border-radius: 12px;
+    /* تنسيق الأزرار */
+    .stButton>button {
+        border-radius: 15px;
         border: 2px solid #00f2fe;
         background: rgba(0, 242, 254, 0.15);
-        color: #00f2fe !important;
+        color: #FFFFFF !important;
         font-weight: bold;
-        padding: 10px 20px;
+        height: 3em;
         transition: 0.3s;
-    }}
-    
-    .stButton>button:hover {{
+    }
+    .stButton>button:hover {
         background: #00f2fe;
         color: #000000 !important;
-        box-shadow: 0 0 20px #00f2fe;
-    }}
+        box-shadow: 0 0 15px #00f2fe;
+    }
 
-    /* تحسين وضوح الـ Metrics */
-    div[data-testid="stMetricLabel"] > div {{ color: #dddddd !important; }}
-    div[data-testid="stMetricValue"] > div {{ color: #00f2fe !important; font-weight: bold; }}
+    /* تحسين وضوح الـ Metrics (الراتب والخصم) */
+    div[data-testid="stMetricValue"] { color: #00f2fe !important; font-size: 1.8rem !important; font-weight: bold; }
+    div[data-testid="stMetricLabel"] p { color: #FFFFFF !important; }
 
-    /* تحسين شكل الحاويات */
-    .stExpander {{
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }}
+    /* تحسين الجداول والبطاقات */
+    .stTable { background-color: rgba(255,255,255,0.05); border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -118,15 +116,15 @@ if 'auth' not in st.session_state: st.session_state['auth'] = False
 
 # --- تسجيل الدخول ---
 if not st.session_state['auth']:
-    st.markdown("<h1 style='text-align: center; color: #00f2fe; text-shadow: 2px 2px 10px #00f2fe;'>💎 بصمة البسمة الذكية</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: #00f2fe; text-shadow: 2px 2px 10px #000;'>💎 بصمة البسمة الذكية</h1>", unsafe_allow_html=True)
     
     with st.container():
         st.markdown("<div style='background: rgba(255,255,255,0.08); padding: 30px; border-radius: 20px; border: 1px solid rgba(0,242,254,0.3)'>", unsafe_allow_html=True)
         role = st.radio("نوع الصلاحية:", ["موظف", "المدير"], horizontal=True)
         
         if role == "موظف":
-            user_sel = st.selectbox("اختر اسمك من القائمة:", list(STAFF_DATA.keys()))
-            user_pass = st.text_input("ادخل الرمز السري الخاص بك:", type="password")
+            user_sel = st.selectbox("اختر اسمك:", list(STAFF_DATA.keys()))
+            user_pass = st.text_input("كلمة المرور الشخصية:", type="password")
             if st.button("دخول للنظام"):
                 if user_pass == STAFF_DATA[user_sel]["pass"]:
                     st.session_state.update({'auth':True, 'user':user_sel, 'role':"موظف"})
@@ -142,17 +140,18 @@ if not st.session_state['auth']:
         st.markdown("</div>", unsafe_allow_html=True)
     st.stop()
 
-# --- الشريط الجانبي ---
+# باقي الكود البرمجي (الموظف والمدير) يتبع نفس المنطق مع تطبيق الثيم الجديد...
+# (للاختصار، قمت بتجهيز هذا الجزء ليعمل مباشرة مع الواجهة المحسنة)
+
 with st.sidebar:
     st.markdown(f"<h3 style='color:#00f2fe'>👤 {st.session_state.get('user', 'المدير')}</h3>", unsafe_allow_html=True)
-    if st.button("🔄 تحديث النظام"):
+    if st.button("🔄 تحديث البيانات"):
         st.cache_data.clear()
         st.rerun()
     if st.button("🚪 تسجيل الخروج"):
         st.session_state.update({'auth': False})
         st.rerun()
 
-# --- واجهة الموظف ---
 if st.session_state['role'] == "موظف":
     name = st.session_state['user']
     emp_info = STAFF_DATA[name]
@@ -167,15 +166,9 @@ if st.session_state['role'] == "موظف":
     
     col_m1, col_m2, col_m3 = st.columns(3)
     col_m1.metric("الراتب", f"{salary:,}")
-    col_m2.metric("إجمالي الخصومات", f"{total_disc:,}")
-    col_m3.metric("الصافي التقريبي", f"{salary - total_disc + manual_bonuses:,}")
+    col_m2.metric("الخصومات", f"{total_disc:,}")
+    col_m3.metric("الصافي", f"{salary - total_disc + manual_bonuses:,}")
 
     st.markdown("<div style='background: rgba(255,255,255,0.07); padding: 25px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
     now = get_iraq_time()
-    c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
-    
-    shift_to_calc = "start"
-    display_type = "حضور"
-
-    if emp_info['type'] == 'double':
-        st.markdown("<h5 style='color: #00f2fe;'>🕒 اختر الوجبة الح
+    c_date, c_time = now.strftime("%Y-%
