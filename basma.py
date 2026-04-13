@@ -9,7 +9,7 @@ ADMIN_PASSWORD = "5566"
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS-53Topnqu23Qtrn1bzNpWa0jVKKuYXyWNukJ0QlNdeBGnC5uH-_mzDEXnn8NkpGu9uLbZDZziaf0s/pub?gid=1287689653&single=true&output=csv"
 
-# --- التحكم بالدوام حسب الأيام (جديد) ---
+# --- التحكم بالدوام حسب الأيام ---
 WEEKLY_RULES = {
     "Saturday":  {"start": "16:00", "end": "23:00", "s1": "10:20", "e1": "15:00", "s2": "17:20", "e2": "22:00"},
     "Sunday":    {"start": "16:00", "end": "23:00", "s1": "10:20", "e1": "15:00", "s2": "17:20", "e2": "22:00"},
@@ -30,7 +30,12 @@ if 'staff_registry' not in st.session_state:
         "علي ماجد": {"salary": 75000, "pass": "1177", "type": "single"},
     }
 
+# إضافة التحكم بمعدل الخصم في الـ session_state
+if 'late_rate' not in st.session_state:
+    st.session_state['late_rate'] = 100  # القيمة الافتراضية
+
 STAFF_DATA = st.session_state['staff_registry']
+LATE_RATE = st.session_state['late_rate']
 
 def get_iraq_time():
     return datetime.utcnow() + timedelta(hours=3)
@@ -125,7 +130,6 @@ if st.session_state['role'] == "موظف":
     rules = WEEKLY_RULES.get(day_name)
     c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
 
-    # نظام اختيار الشفت للموظفين ذوي الشفتين
     shift_selected = "single"
     if STAFF_DATA[name]['type'] == 'double':
         shift_selected = st.radio("اختر الوجبة الحالية للبصمة:", ["الأولى", "الثانية"], horizontal=True)
@@ -133,14 +137,14 @@ if st.session_state['role'] == "موظف":
     col_a, col_b = st.columns(2)
     
     if col_a.button("📥 تسجيل حضور"):
-        # تحديد وقت البداية بناءً على اليوم والوجبة
         if STAFF_DATA[name]['type'] == 'single':
             t_ref = rules['start']
         else:
             t_ref = rules['s1'] if shift_selected == "الأولى" else rules['s2']
             
         t_start = datetime.strptime(t_ref, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        disc = int((now - t_start).total_seconds() / 60 * 100) if now > t_start + timedelta(minutes=5) else 0
+        # تم استبدال 100 بـ LATE_RATE
+        disc = int((now - t_start).total_seconds() / 60 * LATE_RATE) if now > t_start + timedelta(minutes=5) else 0
         
         send_to_google(name, c_date, c_time, f"حضور ({shift_selected})", disc, 0)
         st.success(f"تم البصمة. الخصم: {disc:,}")
@@ -153,7 +157,8 @@ if st.session_state['role'] == "موظف":
             t_ref_e = rules['e1'] if shift_selected == "الأولى" else rules['e2']
             
         t_end = datetime.strptime(t_ref_e, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        ov = int((now - t_end).total_seconds() / 60 * 100) if now > t_end + timedelta(minutes=1) else 0
+        # تم استبدال 100 بـ LATE_RATE
+        ov = int((now - t_end).total_seconds() / 60 * LATE_RATE) if now > t_end + timedelta(minutes=1) else 0
         
         send_to_google(name, c_date, c_time, f"انصراف ({shift_selected})", 0, ov)
         st.info("تم تسجيل الانصراف")
@@ -178,6 +183,15 @@ if st.session_state['role'] == "موظف":
 elif st.session_state['role'] == "المدير":
     st.markdown("<h2>👑 Control Center</h2>", unsafe_allow_html=True)
     
+    # --- قسم التحكم بمعدل الخصم (جديد) ---
+    with st.expander("⚙️ إعدادات الحساب (معدل الخصم)"):
+        st.write(f"المعدل الحالي: {st.session_state['late_rate']} دينار لكل دقيقة")
+        new_rate = st.number_input("تعديل خصم الدقيقة الواحدة:", value=st.session_state['late_rate'], step=10)
+        if st.button("تحديث معدل الخصم"):
+            st.session_state['late_rate'] = new_rate
+            st.success(f"تم تغيير معدل الخصم إلى {new_rate} دينار")
+            st.rerun()
+
     with st.expander("👤 إدارة وتعديل الموظفين"):
         mode = st.radio("العملية:", ["تعديل موظف", "إضافة جديد"], horizontal=True)
         if mode == "تعديل موظف":
