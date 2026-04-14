@@ -473,7 +473,7 @@ if st.session_state['role'] == "موظف":
                 </div>
             </div>
             """, unsafe_allow_html=True)
-        time.sleep(3); st.rerun()
+        time.sleep(6); st.rerun()
 
     if col_b.button("📤 تسجيل انصراف"):
         t_end = datetime.strptime(active_end, "%H:%M").replace(
