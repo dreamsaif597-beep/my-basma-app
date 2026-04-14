@@ -294,8 +294,8 @@ if 'staff_registry' not in st.session_state:
 # --- [تعديل 3] حفظ إعدادات معادلة الخصم ---
 if 'deduction_settings' not in st.session_state:
     st.session_state['deduction_settings'] = {
-        "rate_per_minute": 125,   # IQD لكل دقيقة تأخير
-        "grace_minutes": 6,       # دقائق السماح
+        "rate_per_minute": 100,   # IQD لكل دقيقة تأخير
+        "grace_minutes": 5,       # دقائق السماح
     }
 
 STAFF_DATA = st.session_state['staff_registry']
@@ -632,7 +632,46 @@ elif st.session_state['role'] == "المدير":
             send_to_google(e_g, "غياب يدوي", "---", "غياب", a_g, 0)
             st.cache_data.clear(); st.error("تم الخصم"); st.rerun()
 
+    # --- قسم حذف خصم ---
     st.divider()
+    with st.expander("🗑️ حذف خصم لموظف"):
+        e_del = st.selectbox("اختر الموظف", list(STAFF_DATA.keys()), key="del_emp")
+
+        # جلب خصومات الموظف المختار
+        emp_discounts = df_raw[
+            (df_raw['name'] == e_del) &
+            (df_raw['discount'] > 0) &
+            (~df_raw['type'].isin(["مؤرشف", "طلب إجازة", "طلب سلفة"]))
+        ].copy()
+
+        if emp_discounts.empty:
+            st.info(f"لا توجد خصومات مسجلة لـ {e_del}")
+        else:
+            st.markdown(f"**خصومات {e_del} الحالية:**")
+
+            for i, row in emp_discounts.iterrows():
+                col_info, col_btn = st.columns([4, 1])
+                col_info.markdown(
+                    f"<div style='background:var(--bg-card2);border:1px solid var(--border);border-radius:10px;"
+                    f"padding:0.5rem 0.8rem;font-size:0.85rem;direction:rtl;'>"
+                    f"📅 {row['data']} &nbsp;|&nbsp; 🕐 {row['time']} &nbsp;|&nbsp; "
+                    f"📋 {row['type']} &nbsp;|&nbsp; 💸 <b style='color:#fca5a5;'>{int(row['discount']):,} د.ع</b>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                if col_btn.button("حذف", key=f"del_{i}"):
+                    # الحذف يتم بإرسال سجل "إلغاء خصم" بقيمة سالبة تعادل الخصم المراد حذفه
+                    send_to_google(
+                        e_del,
+                        f"إلغاء خصم: {row['data']}",
+                        "---",
+                        "إلغاء خصم",
+                        -int(row['discount']),
+                        0
+                    )
+                    st.cache_data.clear()
+                    st.success(f"✅ تم إلغاء خصم {int(row['discount']):,} د.ع")
+                    time.sleep(1); st.rerun()
     if st.button("📊 عرض كشف الرواتب"):
         clean = df_raw[~df_raw['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"])]
         totals = clean.groupby('name')[['discount', 'overtime']].sum()
