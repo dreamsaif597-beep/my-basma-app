@@ -321,15 +321,31 @@ def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
+
+        # إعادة تسمية الأعمدة بالأسماء الصحيحة حسب الترتيب الفعلي في الشيت
+        # الشيت: طابع زمني | name | data | time | type | discount | overtime | النتيجة | الموقع الجغرافي | العمود 9
+        col_map = {}
+        cols = list(df.columns)
+        if len(cols) >= 1: col_map[cols[0]] = 'timestamp'
+        if len(cols) >= 2: col_map[cols[1]] = 'name'
+        if len(cols) >= 3: col_map[cols[2]] = 'data'
+        if len(cols) >= 4: col_map[cols[3]] = 'time'
+        if len(cols) >= 5: col_map[cols[4]] = 'type'
+        if len(cols) >= 6: col_map[cols[5]] = 'discount'
+        if len(cols) >= 7: col_map[cols[6]] = 'overtime'
+        if len(cols) >= 9: col_map[cols[8]] = 'location'
+        df = df.rename(columns=col_map)
+
         for col in ['name', 'type', 'data', 'time']:
-            df[col] = df[col].fillna("").astype(str).str.strip()
+            if col in df.columns:
+                df[col] = df[col].fillna("").astype(str).str.strip()
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
-        # عمود الموقع اختياري — إذا ما موجود نضيف عمود فارغ
-        if 'الموقع الجغرافي' not in df.columns:
-            df['الموقع الجغرافي'] = ""
+        if 'location' not in df.columns:
+            df['location'] = ""
         else:
-            df['الموقع الجغرافي'] = df['الموقع الجغرافي'].fillna("").astype(str).str.strip()
+            df['location'] = df['location'].fillna("").astype(str).str.strip()
+
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
@@ -777,11 +793,11 @@ elif st.session_state['role'] == "المدير":
     # --- قسم مواقع الحضور ---
     with st.expander("🗺️ مواقع حضور الموظفين"):
         # فلترة سجلات الحضور التي تحتوي على موقع
-        if not df_raw.empty and 'الموقع الجغرافي' in df_raw.columns:
+        if not df_raw.empty and 'location' in df_raw.columns:
             loc_rows = df_raw[
                 (df_raw['type'] == "حضور") &
-                (df_raw['الموقع الجغرافي'].str.strip() != "") &
-                (df_raw['الموقع الجغرافي'].notna())
+                (df_raw['location'].str.strip() != "") &
+                (df_raw['location'].notna())
             ].copy()
 
             if loc_rows.empty:
@@ -800,7 +816,7 @@ elif st.session_state['role'] == "المدير":
 
                 for _, row in loc_rows[::-1].iterrows():
                     try:
-                        coords = str(row['الموقع الجغرافي']).strip()
+                        coords = str(row['location']).strip()
                         lat_v, lon_v = coords.split(",")
                         maps_url = f"https://www.google.com/maps?q={lat_v.strip()},{lon_v.strip()}"
 
