@@ -470,64 +470,85 @@ if st.session_state['role'] == "موظف":
         shift_choice = "الشفت الوحيد"
 
     # --- مكوّن الموقع الجغرافي ---
-    geo_params = st.query_params
-    lat  = geo_params.get("lat", "")
-    lon  = geo_params.get("lon", "")
-    geo_status = geo_params.get("geo_status", "")
+    # قراءة الموقع من query_params إذا وصل
+    _lat = st.query_params.get("lat", "")
+    _lon = st.query_params.get("lon", "")
+    _geo_err = st.query_params.get("geo_err", "")
 
-    # حفظ الموقع في session_state فور وصوله حتى لا يضيع عند rerun
-    if lat and lon:
-        st.session_state['geo_lat'] = lat
-        st.session_state['geo_lon'] = lon
-    # استخدام المحفوظ إذا لم يكن في الـ params
-    lat = st.session_state.get('geo_lat', lat)
-    lon = st.session_state.get('geo_lon', lon)
+    if _lat and _lon:
+        st.session_state['geo_lat'] = _lat
+        st.session_state['geo_lon'] = _lon
+        st.session_state['geo_err'] = ""
 
-    # عرض حالة الموقع للمستخدم
+    if _geo_err:
+        st.session_state['geo_err'] = _geo_err
+
+    lat = st.session_state.get('geo_lat', "")
+    lon = st.session_state.get('geo_lon', "")
+    geo_err = st.session_state.get('geo_err', "")
+
     if lat and lon:
         st.caption(f"📍 موقعك محدد: {float(lat):.5f}, {float(lon):.5f}")
+    elif geo_err == "denied":
+        st.caption("📍 الموقع: تم رفض الإذن")
     else:
-        st.caption("📍 الموقع الجغرافي: لم يُحدد بعد")
+        st.caption("📍 الموقع الجغرافي: جاري التحديد...")
 
-    # زر JS يطلب الإذن ويعيد تحميل الصفحة مع الإحداثيات
+    # مكوّن JS يطلب الموقع ويعيد التوجيه مع الإحداثيات في الـ URL
+    _has_loc = "true" if (lat and lon) else "false"
     st.components.v1.html(f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body>
+    <button id="geo-btn" onclick="getGeo()" style="
+        background:#1a2235;border:1px solid rgba(59,130,246,0.4);
+        border-radius:8px;color:#93c5fd;font-size:0.82rem;
+        padding:0.3rem 1rem;cursor:pointer;font-family:sans-serif;">
+        📡 تحديث الموقع
+    </button>
+    <span id="status" style="font-size:0.78rem;color:#94a3b8;margin-right:8px;"></span>
     <script>
-    function getLocation() {{
+    var hasLoc = {_has_loc};
+
+    function getGeo() {{
+        document.getElementById('status').innerText = 'جاري تحديد الموقع...';
         if (!navigator.geolocation) {{
-            window.parent.location.href = window.parent.location.pathname + '?geo_status=unsupported';
+            redirect('geo_err=unsupported');
             return;
         }}
         navigator.geolocation.getCurrentPosition(
             function(pos) {{
-                var lat = pos.coords.latitude.toFixed(6);
-                var lon = pos.coords.longitude.toFixed(6);
-                var url = window.parent.location.pathname + '?lat=' + lat + '&lon=' + lon + '&geo_status=ok';
-                window.parent.location.href = url;
+                var la = pos.coords.latitude.toFixed(6);
+                var lo = pos.coords.longitude.toFixed(6);
+                document.getElementById('status').innerText = '✓ تم: ' + la + ', ' + lo;
+                redirect('lat=' + la + '&lon=' + lo);
             }},
             function(err) {{
-                window.parent.location.href = window.parent.location.pathname + '?geo_status=denied';
+                document.getElementById('status').innerText = 'تعذر تحديد الموقع';
+                redirect('geo_err=denied');
             }},
-            {{enableHighAccuracy: true, timeout: 10000}}
+            {{enableHighAccuracy: true, timeout: 15000, maximumAge: 0}}
         );
     }}
-    // تشغيل تلقائي عند فتح الصفحة إذا لم يكن الموقع محدداً
-    if ({'true' if not lat else 'false'}) {{
-        getLocation();
+
+    function redirect(params) {{
+        var base = window.parent.location.pathname;
+        window.parent.location.replace(base + '?' + params);
+    }}
+
+    // تشغيل تلقائي عند أول فتح فقط
+    if (!hasLoc) {{
+        setTimeout(getGeo, 500);
     }}
     </script>
-    <button onclick="getLocation()" style="
-        background:linear-gradient(135deg,#1a2235,#111827);
-        border:1px solid rgba(59,130,246,0.3);border-radius:8px;
-        color:#93c5fd;font-size:0.8rem;padding:0.3rem 0.9rem;
-        cursor:pointer;font-family:sans-serif;direction:rtl;
-        margin-bottom:4px;">
-        📡 تحديث الموقع
-    </button>
-    """, height=45)
+    </body>
+    </html>
+    """, height=50)
 
-    if geo_status == "denied":
+    if geo_err == "denied":
         st.warning("⚠️ تم رفض إذن الموقع — سيُسجَّل الحضور بدون إحداثيات")
-    elif geo_status == "unsupported":
+    elif geo_err == "unsupported":
         st.warning("⚠️ المتصفح لا يدعم تحديد الموقع")
 
     col_a, col_b = st.columns(2)
