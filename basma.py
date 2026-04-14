@@ -847,8 +847,11 @@ elif st.session_state['role'] == "المدير":
                     time.sleep(1); st.rerun()
     # --- قسم مواقع الحضور ---
     with st.expander("🗺️ مواقع حضور الموظفين"):
+        st.caption(f"🔍 df_raw فارغ={df_raw.empty} | أعمدة={list(df_raw.columns) if not df_raw.empty else 'لا يوجد'}")
         if not df_raw.empty and 'location' in df_raw.columns:
-            # أي سجل عنده موقع بغض النظر عن النوع
+            total_with_loc = df_raw[df_raw['location'].str.strip() != ""].shape[0]
+            st.caption(f"📊 سجلات بموقع={total_with_loc}")
+
             loc_rows = df_raw[
                 (df_raw['location'].str.strip() != "") &
                 (df_raw['location'].notna()) &
