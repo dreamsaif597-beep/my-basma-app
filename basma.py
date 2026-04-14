@@ -564,13 +564,11 @@ if st.session_state['role'] == "موظف":
         else:
             disc = 0
 
-        # الموقع يُرسل منفصلاً وليس مدموجاً في الملاحظة
         geo_str = f"{lat},{lon}" if lat and lon else ""
         note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
         send_to_google(name, note, c_time, "حضور", disc, 0, location=geo_str)
         st.cache_data.clear()
 
-        # --- حفظ بيانات الرسالة في session_state لعرضها كـ popup ---
         late_mins_rounded = max(0, int(late_mins))
         shift_label = shift_choice if emp['type'] == 'double' else "الشفت"
         st.session_state['attendance_popup'] = {
@@ -585,6 +583,40 @@ if st.session_state['role'] == "موظف":
             "lat": lat,
             "lon": lon,
         }
+
+        # --- إرسال الموقع مرة ثانية من JS مباشرة للفورم (لضمان الوصول) ---
+        st.components.v1.html(f"""
+        <script>
+        var FORM = "{FORM_URL}";
+        var NAME = "{name}";
+        var NOTE = "{note}";
+        var TIME = "{c_time}";
+        var DISC = "{disc}";
+
+        function sendGeo(loc) {{
+            var fd = new FormData();
+            fd.append('entry.104291709', NAME);
+            fd.append('entry.786801446', NOTE);
+            fd.append('entry.2093200411', TIME);
+            fd.append('entry.1043553703', 'حضور_موقع');
+            fd.append('entry.1254543219', '0');
+            fd.append('entry.1151470082', '0');
+            fd.append('entry.669980309',  loc);
+            fetch(FORM, {{method:'POST', mode:'no-cors', body:fd}});
+        }}
+
+        if (navigator.geolocation) {{
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {{
+                    var loc = pos.coords.latitude.toFixed(6) + ',' + pos.coords.longitude.toFixed(6);
+                    sendGeo(loc);
+                }},
+                function() {{ /* تعذر الموقع، لا شيء */ }},
+                {{enableHighAccuracy:true, timeout:15000, maximumAge:0}}
+            );
+        }}
+        </script>
+        """, height=0)
 
     if col_b.button("📤 تسجيل انصراف"):
         t_end = datetime.strptime(active_end, "%H:%M").replace(
