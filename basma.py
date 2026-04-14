@@ -436,44 +436,19 @@ if st.session_state['role'] == "موظف":
         send_to_google(name, note, c_time, "حضور", disc, 0)
         st.cache_data.clear()
 
-        # --- رسالة تفاصيل البصمة ---
+        # --- حفظ بيانات الرسالة في session_state لعرضها كـ popup ---
         late_mins_rounded = max(0, int(late_mins))
         shift_label = shift_choice if emp['type'] == 'double' else "الشفت"
-        if disc == 0:
-            st.markdown(f"""
-            <div style="background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));
-                        border:1px solid rgba(16,185,129,0.35);border-radius:14px;padding:1.2rem 1.4rem;margin-top:0.5rem;">
-                <div style="font-size:1.5rem;margin-bottom:0.4rem;">✅ تمت البصمة بنجاح</div>
-                <div style="color:#6ee7b7;font-size:1rem;font-weight:700;margin-bottom:0.6rem;">
-                    أحسنت أيها الموظف النشيط! 🌟
-                </div>
-                <div style="color:#94a3b8;font-size:0.88rem;line-height:1.9;">
-                    👤 الاسم: <b style="color:#f1f5f9;">{name}</b><br>
-                    📅 التاريخ: <b style="color:#f1f5f9;">{c_date}</b><br>
-                    🕐 وقت الحضور: <b style="color:#f1f5f9;">{c_time}</b><br>
-                    📌 الشفت: <b style="color:#f1f5f9;">{shift_label}</b><br>
-                    ⏰ وقت الدوام: <b style="color:#f1f5f9;">{active_start}</b><br>
-                    ✅ الحالة: <b style="color:#10b981;">في الوقت — لا يوجد خصم</b>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div style="background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.03));
-                        border:1px solid rgba(239,68,68,0.30);border-radius:14px;padding:1.2rem 1.4rem;margin-top:0.5rem;">
-                <div style="font-size:1.5rem;margin-bottom:0.4rem;">⚠️ تمت البصمة — مع ملاحظة تأخير</div>
-                <div style="color:#94a3b8;font-size:0.88rem;line-height:1.9;">
-                    👤 الاسم: <b style="color:#f1f5f9;">{name}</b><br>
-                    📅 التاريخ: <b style="color:#f1f5f9;">{c_date}</b><br>
-                    🕐 وقت الحضور الفعلي: <b style="color:#f1f5f9;">{c_time}</b><br>
-                    📌 الشفت: <b style="color:#f1f5f9;">{shift_label}</b><br>
-                    ⏰ وقت الدوام المقرر: <b style="color:#f1f5f9;">{active_start}</b><br>
-                    ⏱️ مدة التأخير: <b style="color:#fbbf24;">{late_mins_rounded} دقيقة</b><br>
-                    💸 خصم التأخير: <b style="color:#fca5a5;">{disc:,} د.ع</b>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        time.sleep(6); st.rerun()
+        st.session_state['attendance_popup'] = {
+            "show": True,
+            "disc": disc,
+            "name": name,
+            "c_date": c_date,
+            "c_time": c_time,
+            "shift_label": shift_label,
+            "active_start": active_start,
+            "late_mins": late_mins_rounded,
+        }
 
     if col_b.button("📤 تسجيل انصراف"):
         t_end = datetime.strptime(active_end, "%H:%M").replace(
@@ -485,6 +460,64 @@ if st.session_state['role'] == "موظف":
         st.cache_data.clear()
         st.info("تم تسجيل الانصراف 👋")
         time.sleep(1); st.rerun()
+
+    # ========== Popup تفاصيل البصمة ==========
+    if st.session_state.get('attendance_popup', {}).get('show'):
+        p = st.session_state['attendance_popup']
+        if p['disc'] == 0:
+            popup_html = f"""
+            <div style="
+                position:fixed;top:0;left:0;width:100%;height:100%;
+                background:rgba(0,0,0,0.80);z-index:9999;
+                display:flex;align-items:center;justify-content:center;">
+              <div style="
+                background:#111827;border:1px solid rgba(16,185,129,0.45);
+                border-radius:20px;padding:2rem 2.2rem;max-width:370px;width:90%;
+                box-shadow:0 0 50px rgba(16,185,129,0.18);text-align:right;direction:rtl;">
+                <div style="font-size:2.2rem;margin-bottom:0.3rem;">✅</div>
+                <div style="font-size:1.15rem;font-weight:700;color:#f1f5f9;margin-bottom:0.25rem;">تمت البصمة بنجاح</div>
+                <div style="font-size:0.95rem;font-weight:700;color:#10b981;margin-bottom:1.1rem;">أحسنت أيها الموظف النشيط! 🌟</div>
+                <div style="color:#94a3b8;font-size:0.88rem;line-height:2.1;">
+                  👤 الاسم: <b style="color:#f1f5f9;">{p['name']}</b><br>
+                  📅 التاريخ: <b style="color:#f1f5f9;">{p['c_date']}</b><br>
+                  🕐 وقت الحضور: <b style="color:#f1f5f9;">{p['c_time']}</b><br>
+                  📌 الشفت: <b style="color:#f1f5f9;">{p['shift_label']}</b><br>
+                  ⏰ وقت الدوام: <b style="color:#f1f5f9;">{p['active_start']}</b><br>
+                  ✅ الحالة: <b style="color:#10b981;">في الوقت — لا يوجد خصم</b>
+                </div>
+              </div>
+            </div>
+            """
+        else:
+            popup_html = f"""
+            <div style="
+                position:fixed;top:0;left:0;width:100%;height:100%;
+                background:rgba(0,0,0,0.80);z-index:9999;
+                display:flex;align-items:center;justify-content:center;">
+              <div style="
+                background:#111827;border:1px solid rgba(239,68,68,0.40);
+                border-radius:20px;padding:2rem 2.2rem;max-width:370px;width:90%;
+                box-shadow:0 0 50px rgba(239,68,68,0.14);text-align:right;direction:rtl;">
+                <div style="font-size:2.2rem;margin-bottom:0.3rem;">⚠️</div>
+                <div style="font-size:1.15rem;font-weight:700;color:#f1f5f9;margin-bottom:1.1rem;">تمت البصمة — مع ملاحظة تأخير</div>
+                <div style="color:#94a3b8;font-size:0.88rem;line-height:2.1;">
+                  👤 الاسم: <b style="color:#f1f5f9;">{p['name']}</b><br>
+                  📅 التاريخ: <b style="color:#f1f5f9;">{p['c_date']}</b><br>
+                  🕐 وقت الحضور الفعلي: <b style="color:#f1f5f9;">{p['c_time']}</b><br>
+                  📌 الشفت: <b style="color:#f1f5f9;">{p['shift_label']}</b><br>
+                  ⏰ وقت الدوام المقرر: <b style="color:#f1f5f9;">{p['active_start']}</b><br>
+                  ⏱️ مدة التأخير: <b style="color:#fbbf24;">{p['late_mins']} دقيقة</b><br>
+                  💸 خصم التأخير: <b style="color:#fca5a5;">{p['disc']:,} د.ع</b>
+                </div>
+              </div>
+            </div>
+            """
+        st.markdown(popup_html, unsafe_allow_html=True)
+        # زر "تم" يظهر تحت الـ popup مباشرة
+        col_mid = st.columns([2, 1, 2])[1]
+        if col_mid.button("✔️ تم", key="dismiss_popup"):
+            st.session_state['attendance_popup'] = {"show": False}
+            st.rerun()
 
     with st.expander("📊 سجل الحركات"):
         if not user_records.empty:
