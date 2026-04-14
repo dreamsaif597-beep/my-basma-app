@@ -347,27 +347,54 @@ if not st.session_state['auth']:
     role = st.radio("الدخول كـ:", ["موظف", "المدير"], horizontal=True)
     if role == "موظف":
         user_sel = st.selectbox("اسم الموظف:", list(STAFF_DATA.keys()))
-        user_pass = st.text_input("الرمز السري:", type="password")
+
+        # قراءة الرمز المحفوظ من query params إذا موجود
+        saved_key = f"saved_pass_{user_sel}"
+        default_pass = st.session_state.get(saved_key, "")
+
+        user_pass = st.text_input("الرمز السري:", type="password", value=default_pass)
+        remember_me = st.checkbox("تذكر الرمز على هذا الجهاز", value=(default_pass != ""))
+
         if st.button("دخول الموظف"):
             if user_pass == STAFF_DATA[user_sel]["pass"]:
+                if remember_me:
+                    st.session_state[saved_key] = user_pass
+                else:
+                    st.session_state.pop(saved_key, None)
                 st.session_state.update({'auth': True, 'user': user_sel, 'role': "موظف"})
                 st.rerun()
-            else: st.error("الرمز خطأ!")
+            else:
+                st.error("الرمز خطأ!")
     else:
-        admin_pass = st.text_input("رمز المدير:", type="password")
+        saved_admin = st.session_state.get("saved_admin_pass", "")
+        admin_pass = st.text_input("رمز المدير:", type="password", value=saved_admin)
+        remember_admin = st.checkbox("تذكر الرمز على هذا الجهاز", value=(saved_admin != ""))
+
         if st.button("دخول المدير"):
             if admin_pass == ADMIN_PASSWORD:
+                if remember_admin:
+                    st.session_state["saved_admin_pass"] = admin_pass
+                else:
+                    st.session_state.pop("saved_admin_pass", None)
                 st.session_state.update({'auth': True, 'role': "المدير"})
                 st.rerun()
-            else: st.error("الرمز خطأ!")
+            else:
+                st.error("الرمز خطأ!")
     st.stop()
 
-col_logout, col_refresh, col_spacer = st.columns([1, 1, 4])
+col_logout, col_refresh, col_forget, col_spacer = st.columns([1, 1, 1.5, 2.5])
 if col_logout.button("🚪 خروج"):
     st.session_state.update({'auth': False})
     st.rerun()
 if col_refresh.button("🔄 تحديث"):
     st.cache_data.clear()
+    st.rerun()
+if col_forget.button("🗝️ نسيان الرمز"):
+    # حذف كل الرموز المحفوظة
+    keys_to_del = [k for k in st.session_state if k.startswith("saved_")]
+    for k in keys_to_del:
+        del st.session_state[k]
+    st.session_state.update({'auth': False})
     st.rerun()
 
 # ========== واجهة الموظف ==========
