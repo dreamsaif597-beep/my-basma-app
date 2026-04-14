@@ -321,18 +321,21 @@ def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
+
+        # إعادة تسمية الأعمدة بالأسماء الصحيحة حسب الترتيب الفعلي في الشيت
+        # الشيت: طابع زمني | name | data | time | type | discount | overtime | النتيجة | الموقع الجغرافي | العمود 9
+        col_map = {}
         cols = list(df.columns)
-        rename = {}
-        if len(cols) > 0: rename[cols[0]] = 'timestamp'
-        if len(cols) > 1: rename[cols[1]] = 'name'
-        if len(cols) > 2: rename[cols[2]] = 'data'
-        if len(cols) > 3: rename[cols[3]] = 'time'
-        if len(cols) > 4: rename[cols[4]] = 'type'
-        if len(cols) > 5: rename[cols[5]] = 'discount'
-        if len(cols) > 6: rename[cols[6]] = 'overtime'
-        if len(cols) > 7: rename[cols[7]] = 'result'
-        if len(cols) > 8: rename[cols[8]] = 'location'  # عمود I
-        df = df.rename(columns=rename)
+        if len(cols) >= 1: col_map[cols[0]] = 'timestamp'
+        if len(cols) >= 2: col_map[cols[1]] = 'name'
+        if len(cols) >= 3: col_map[cols[2]] = 'data'
+        if len(cols) >= 4: col_map[cols[3]] = 'time'
+        if len(cols) >= 5: col_map[cols[4]] = 'type'
+        if len(cols) >= 6: col_map[cols[5]] = 'discount'
+        if len(cols) >= 7: col_map[cols[6]] = 'overtime'
+        if len(cols) >= 9: col_map[cols[8]] = 'location'
+        df = df.rename(columns=col_map)
+
         for col in ['name', 'type', 'data', 'time']:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
@@ -342,7 +345,7 @@ def fetch_and_clean_data():
             df['location'] = ""
         else:
             df['location'] = df['location'].fillna("").astype(str).str.strip()
-            df['location'] = df['location'].replace("nan", "")
+
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
@@ -810,17 +813,18 @@ elif st.session_state['role'] == "المدير":
                     time.sleep(1); st.rerun()
     # --- قسم مواقع الحضور ---
     with st.expander("🗺️ مواقع حضور الموظفين"):
+        # فلترة سجلات الحضور التي تحتوي على موقع
         if not df_raw.empty and 'location' in df_raw.columns:
             loc_rows = df_raw[
-                (df_raw['type'] == "حضور_موقع") &
+                (df_raw['type'] == "حضور") &
                 (df_raw['location'].str.strip() != "") &
-                (df_raw['location'].notna()) &
-                (df_raw['location'] != "nan")
+                (df_raw['location'].notna())
             ].copy()
 
             if loc_rows.empty:
                 st.info("لا توجد بصمات مسجلة بموقع جغرافي بعد")
             else:
+                # فلتر باسم الموظف
                 emp_filter = st.selectbox(
                     "تصفية حسب الموظف:",
                     ["الكل"] + list(STAFF_DATA.keys()),
@@ -835,10 +839,7 @@ elif st.session_state['role'] == "المدير":
                     try:
                         coords = str(row['location']).strip()
                         lat_v, lon_v = coords.split(",")
-                        lat_v = lat_v.strip()
-                        lon_v = lon_v.strip()
-                        # يفتح تطبيق الخرائط مباشرة على الموبايل
-                        maps_url = f"https://maps.google.com/maps?q={lat_v},{lon_v}&ll={lat_v},{lon_v}&z=17"
+                        maps_url = f"https://www.google.com/maps?q={lat_v.strip()},{lon_v.strip()}"
 
                         st.markdown(f"""
                         <div style="background:var(--bg-card2);border:1px solid var(--border);
@@ -859,7 +860,7 @@ elif st.session_state['role'] == "المدير":
                                 </a>
                             </div>
                             <div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.35rem;">
-                                إحداثيات: {lat_v}, {lon_v}
+                                إحداثيات: {lat_v.strip()}, {lon_v.strip()}
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
