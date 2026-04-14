@@ -469,184 +469,133 @@ if st.session_state['role'] == "موظف":
         active_end   = emp['end']
         shift_choice = "الشفت الوحيد"
 
-    # --- حساب الخصم مسبقاً لتمريره للـ JS ---
-    ds = st.session_state['deduction_settings']
-    t_start_calc = datetime.strptime(active_start, "%H:%M").replace(
-        year=now.year, month=now.month, day=now.day
-    )
-    late_mins_calc = (now - t_start_calc).total_seconds() / 60
-    if late_mins_calc > ds['grace_minutes']:
-        disc_calc = int(late_mins_calc * ds['rate_per_minute'])
+    # --- مكوّن الموقع الجغرافي ---
+    # قراءة الموقع من query_params إذا وصل
+    _lat = st.query_params.get("lat", "")
+    _lon = st.query_params.get("lon", "")
+    _geo_err = st.query_params.get("geo_err", "")
+
+    if _lat and _lon:
+        st.session_state['geo_lat'] = _lat
+        st.session_state['geo_lon'] = _lon
+        st.session_state['geo_err'] = ""
+
+    if _geo_err:
+        st.session_state['geo_err'] = _geo_err
+
+    lat = st.session_state.get('geo_lat', "")
+    lon = st.session_state.get('geo_lon', "")
+    geo_err = st.session_state.get('geo_err', "")
+
+    if lat and lon:
+        st.caption(f"📍 موقعك محدد: {float(lat):.5f}, {float(lon):.5f}")
+    elif geo_err == "denied":
+        st.caption("📍 الموقع: تم رفض الإذن")
     else:
-        disc_calc = 0
-    late_mins_rounded_calc = max(0, int(late_mins_calc))
-    note_calc = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
-    shift_label_calc = shift_choice if emp['type'] == 'double' else "الشفت"
+        st.caption("📍 الموقع الجغرافي: جاري التحديد...")
 
-    # قراءة نتيجة البصمة من query_params إذا وصلت من الـ iframe
-    _action = st.query_params.get("action", "")
-    _geo_lat = st.query_params.get("geo_lat", "")
-    _geo_lon = st.query_params.get("geo_lon", "")
-    _done = st.query_params.get("done", "")
-
-    if _done == "1" and _action == "checkin" and "attendance_done" not in st.session_state:
-        # الـ iframe أرسل للفورم — نسجل الـ popup فقط
-        st.session_state['attendance_done'] = True
-        geo_str = f"{_geo_lat},{_geo_lon}" if _geo_lat and _geo_lon else ""
-        st.session_state['attendance_popup'] = {
-            "show": True,
-            "disc": disc_calc,
-            "name": name,
-            "c_date": c_date,
-            "c_time": c_time,
-            "shift_label": shift_label_calc,
-            "active_start": active_start,
-            "late_mins": late_mins_rounded_calc,
-            "lat": _geo_lat,
-            "lon": _geo_lon,
-        }
-        st.cache_data.clear()
-        # نمسح الـ query params ونعمل rerun نظيف
-        st.query_params.clear()
-        st.rerun()
-
-    if _done == "1" and _action == "checkout":
-        st.cache_data.clear()
-        st.query_params.clear()
-        st.info("تم تسجيل الانصراف 👋")
-        time.sleep(1)
-        st.rerun()
-
-    # مسح علامة done بعد عرض الـ popup
-    if "attendance_done" in st.session_state and not st.session_state.get('attendance_popup', {}).get('show'):
-        del st.session_state['attendance_done']
-
-    # --- الـ iframe الذي يتعامل مع الموقع والإرسال ---
-    FORM_URL_JS = "https://docs.google.com/forms/d/e/1FAIpQLSdDEVeQ9TQnKKZw-owowdOJ1BU6t6i-XtCObOo0iTh_4YKzPg/formResponse"
-
-    checkin_ov   = 0
-    checkout_ov  = int((now - datetime.strptime(emp.get('end', emp.get('e2','23:00')), "%H:%M").replace(year=now.year,month=now.month,day=now.day)).total_seconds()/60*100) if now > datetime.strptime(emp.get('end', emp.get('e2','23:00')), "%H:%M").replace(year=now.year,month=now.month,day=now.day) + timedelta(minutes=1) else 0
-    end_str = emp.get('end', emp.get('e2', '23:00'))
-    t_end_calc = datetime.strptime(end_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-    checkout_ov = int((now - t_end_calc).total_seconds()/60*100) if now > t_end_calc + timedelta(minutes=1) else 0
-
+    # مكوّن JS يطلب الموقع ويعيد التوجيه مع الإحداثيات في الـ URL
+    _has_loc = "true" if (lat and lon) else "false"
     st.components.v1.html(f"""
-    <!DOCTYPE html><html><head><meta charset="utf-8">
-    <style>
-      body {{margin:0;padding:4px;background:transparent;font-family:'IBM Plex Sans Arabic',sans-serif;direction:rtl;}}
-      .row {{display:flex;gap:10px;}}
-      button {{
-        flex:1;padding:10px 0;border:none;border-radius:10px;font-size:0.9rem;
-        font-weight:600;cursor:pointer;color:#fff;transition:opacity 0.2s;
-      }}
-      #btn-in  {{background:linear-gradient(135deg,#3b82f6,#6366f1);}}
-      #btn-out {{background:linear-gradient(135deg,#1e293b,#334155);border:1px solid rgba(255,255,255,0.1);}}
-      button:disabled {{opacity:0.5;cursor:default;}}
-      #msg {{font-size:0.8rem;color:#94a3b8;margin-top:6px;text-align:center;min-height:18px;}}
-    </style>
-    </head><body>
-    <div class="row">
-      <button id="btn-in"  onclick="doCheckin()">📥 تسجيل حضور</button>
-      <button id="btn-out" onclick="doCheckout()">📤 تسجيل انصراف</button>
-    </div>
-    <div id="msg"></div>
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body>
+    <button id="geo-btn" onclick="getGeo()" style="
+        background:#1a2235;border:1px solid rgba(59,130,246,0.4);
+        border-radius:8px;color:#93c5fd;font-size:0.82rem;
+        padding:0.3rem 1rem;cursor:pointer;font-family:sans-serif;">
+        📡 تحديث الموقع
+    </button>
+    <span id="status" style="font-size:0.78rem;color:#94a3b8;margin-right:8px;"></span>
     <script>
-    var FORM = "{FORM_URL_JS}";
-    var NAME  = "{name}";
-    var NOTE  = "{note_calc}";
-    var TIME  = "{c_time}";
-    var DISC  = "{disc_calc}";
-    var OV    = "{checkout_ov}";
-    var NOTE_OUT = "{note_calc}";
+    var hasLoc = {_has_loc};
 
-    function setMsg(t) {{ document.getElementById('msg').innerText = t; }}
-
-    function postForm(payload, cb) {{
-      var fd = new FormData();
-      for (var k in payload) fd.append(k, payload[k]);
-      fetch(FORM, {{method:'POST', mode:'no-cors', body:fd}})
-        .then(function(){{ cb(true); }})
-        .catch(function(){{ cb(false); }});
+    function getGeo() {{
+        document.getElementById('status').innerText = 'جاري تحديد الموقع...';
+        if (!navigator.geolocation) {{
+            redirect('geo_err=unsupported');
+            return;
+        }}
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {{
+                var la = pos.coords.latitude.toFixed(6);
+                var lo = pos.coords.longitude.toFixed(6);
+                document.getElementById('status').innerText = '✓ تم: ' + la + ', ' + lo;
+                redirect('lat=' + la + '&lon=' + lo);
+            }},
+            function(err) {{
+                document.getElementById('status').innerText = 'تعذر تحديد الموقع';
+                redirect('geo_err=denied');
+            }},
+            {{enableHighAccuracy: true, timeout: 15000, maximumAge: 0}}
+        );
     }}
 
     function redirect(params) {{
-      window.parent.location.replace(window.parent.location.pathname + '?' + params);
+        var base = window.parent.location.pathname;
+        window.parent.location.replace(base + '?' + params);
     }}
 
-    function doCheckin() {{
-      document.getElementById('btn-in').disabled  = true;
-      document.getElementById('btn-out').disabled = true;
-      setMsg('📡 جاري تحديد موقعك...');
-      if (!navigator.geolocation) {{
-        sendCheckin('');
-        return;
-      }}
-      navigator.geolocation.getCurrentPosition(
-        function(pos) {{
-          var loc = pos.coords.latitude.toFixed(6) + ',' + pos.coords.longitude.toFixed(6);
-          setMsg('📍 تم تحديد الموقع — جاري الإرسال...');
-          sendCheckin(loc, pos.coords.latitude.toFixed(6), pos.coords.longitude.toFixed(6));
-        }},
-        function() {{
-          setMsg('⚠️ تعذر الموقع — جاري الإرسال بدونه...');
-          sendCheckin('', '', '');
-        }},
-        {{enableHighAccuracy:true, timeout:15000, maximumAge:0}}
-      );
-    }}
-
-    function sendCheckin(loc, la, lo) {{
-      la = la || ''; lo = lo || '';
-      var payload = {{
-        'entry.104291709': NAME,
-        'entry.786801446': NOTE,
-        'entry.2093200411': TIME,
-        'entry.1043553703': 'حضور',
-        'entry.1254543219': DISC,
-        'entry.1151470082': '0',
-        'entry.669980309' : loc
-      }};
-      postForm(payload, function(ok) {{
-        if (ok) {{
-          setMsg('✅ تم إرسال البصمة');
-          redirect('action=checkin&done=1&geo_lat=' + la + '&geo_lon=' + lo);
-        }} else {{
-          setMsg('❌ فشل الاتصال بالخادم');
-          document.getElementById('btn-in').disabled  = false;
-          document.getElementById('btn-out').disabled = false;
-        }}
-      }});
-    }}
-
-    function doCheckout() {{
-      document.getElementById('btn-in').disabled  = true;
-      document.getElementById('btn-out').disabled = true;
-      setMsg('جاري تسجيل الانصراف...');
-      var payload = {{
-        'entry.104291709': NAME,
-        'entry.786801446': NOTE_OUT,
-        'entry.2093200411': TIME,
-        'entry.1043553703': 'انصراف',
-        'entry.1254543219': '0',
-        'entry.1151470082': OV,
-        'entry.669980309' : ''
-      }};
-      postForm(payload, function(ok) {{
-        if (ok) {{
-          redirect('action=checkout&done=1');
-        }} else {{
-          setMsg('❌ فشل الاتصال');
-          document.getElementById('btn-in').disabled  = false;
-          document.getElementById('btn-out').disabled = false;
-        }}
-      }});
+    // تشغيل تلقائي عند أول فتح فقط
+    if (!hasLoc) {{
+        setTimeout(getGeo, 500);
     }}
     </script>
-    </body></html>
-    """, height=90)
+    </body>
+    </html>
+    """, height=50)
 
-    if False:  # placeholder to keep structure
-        pass
+    if geo_err == "denied":
+        st.warning("⚠️ تم رفض إذن الموقع — سيُسجَّل الحضور بدون إحداثيات")
+    elif geo_err == "unsupported":
+        st.warning("⚠️ المتصفح لا يدعم تحديد الموقع")
+
+    col_a, col_b = st.columns(2)
+
+    if col_a.button("📥 تسجيل حضور"):
+        ds = st.session_state['deduction_settings']
+        t_start = datetime.strptime(active_start, "%H:%M").replace(
+            year=now.year, month=now.month, day=now.day
+        )
+        late_mins = (now - t_start).total_seconds() / 60
+        if late_mins > ds['grace_minutes']:
+            disc = int(late_mins * ds['rate_per_minute'])
+        else:
+            disc = 0
+
+        # الموقع يُرسل منفصلاً وليس مدموجاً في الملاحظة
+        geo_str = f"{lat},{lon}" if lat and lon else ""
+        note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
+        send_to_google(name, note, c_time, "حضور", disc, 0, location=geo_str)
+        st.cache_data.clear()
+
+        # --- حفظ بيانات الرسالة في session_state لعرضها كـ popup ---
+        late_mins_rounded = max(0, int(late_mins))
+        shift_label = shift_choice if emp['type'] == 'double' else "الشفت"
+        st.session_state['attendance_popup'] = {
+            "show": True,
+            "disc": disc,
+            "name": name,
+            "c_date": c_date,
+            "c_time": c_time,
+            "shift_label": shift_label,
+            "active_start": active_start,
+            "late_mins": late_mins_rounded,
+            "lat": lat,
+            "lon": lon,
+        }
+
+    if col_b.button("📤 تسجيل انصراف"):
+        t_end = datetime.strptime(active_end, "%H:%M").replace(
+            year=now.year, month=now.month, day=now.day
+        )
+        ov = int((now - t_end).total_seconds() / 60 * 100) if now > t_end + timedelta(minutes=1) else 0
+        note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
+        send_to_google(name, note, c_time, "انصراف", 0, ov)
+        st.cache_data.clear()
+        st.info("تم تسجيل الانصراف 👋")
+        time.sleep(1); st.rerun()
 
     # ========== Popup تفاصيل البصمة ==========
     if st.session_state.get('attendance_popup', {}).get('show'):
