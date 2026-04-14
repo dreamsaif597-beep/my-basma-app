@@ -432,12 +432,48 @@ if st.session_state['role'] == "موظف":
             disc = int(late_mins * ds['rate_per_minute'])
         else:
             disc = 0
-        # نضيف اسم الشفت في الملاحظة إذا كان double
         note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
         send_to_google(name, note, c_time, "حضور", disc, 0)
         st.cache_data.clear()
-        st.success(f"تم تسجيل الحضور ✅  |  الخصم: {disc:,} د.ع")
-        time.sleep(1); st.rerun()
+
+        # --- رسالة تفاصيل البصمة ---
+        late_mins_rounded = max(0, int(late_mins))
+        shift_label = shift_choice if emp['type'] == 'double' else "الشفت"
+        if disc == 0:
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,rgba(16,185,129,0.12),rgba(16,185,129,0.04));
+                        border:1px solid rgba(16,185,129,0.35);border-radius:14px;padding:1.2rem 1.4rem;margin-top:0.5rem;">
+                <div style="font-size:1.5rem;margin-bottom:0.4rem;">✅ تمت البصمة بنجاح</div>
+                <div style="color:#6ee7b7;font-size:1rem;font-weight:700;margin-bottom:0.6rem;">
+                    أحسنت أيها الموظف النشيط! 🌟
+                </div>
+                <div style="color:#94a3b8;font-size:0.88rem;line-height:1.9;">
+                    👤 الاسم: <b style="color:#f1f5f9;">{name}</b><br>
+                    📅 التاريخ: <b style="color:#f1f5f9;">{c_date}</b><br>
+                    🕐 وقت الحضور: <b style="color:#f1f5f9;">{c_time}</b><br>
+                    📌 الشفت: <b style="color:#f1f5f9;">{shift_label}</b><br>
+                    ⏰ وقت الدوام: <b style="color:#f1f5f9;">{active_start}</b><br>
+                    ✅ الحالة: <b style="color:#10b981;">في الوقت — لا يوجد خصم</b>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,rgba(239,68,68,0.10),rgba(239,68,68,0.03));
+                        border:1px solid rgba(239,68,68,0.30);border-radius:14px;padding:1.2rem 1.4rem;margin-top:0.5rem;">
+                <div style="font-size:1.5rem;margin-bottom:0.4rem;">⚠️ تمت البصمة — مع ملاحظة تأخير</div>
+                <div style="color:#94a3b8;font-size:0.88rem;line-height:1.9;">
+                    👤 الاسم: <b style="color:#f1f5f9;">{name}</b><br>
+                    📅 التاريخ: <b style="color:#f1f5f9;">{c_date}</b><br>
+                    🕐 وقت الحضور الفعلي: <b style="color:#f1f5f9;">{c_time}</b><br>
+                    📌 الشفت: <b style="color:#f1f5f9;">{shift_label}</b><br>
+                    ⏰ وقت الدوام المقرر: <b style="color:#f1f5f9;">{active_start}</b><br>
+                    ⏱️ مدة التأخير: <b style="color:#fbbf24;">{late_mins_rounded} دقيقة</b><br>
+                    💸 خصم التأخير: <b style="color:#fca5a5;">{disc:,} د.ع</b>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        time.sleep(3); st.rerun()
 
     if col_b.button("📤 تسجيل انصراف"):
         t_end = datetime.strptime(active_end, "%H:%M").replace(
