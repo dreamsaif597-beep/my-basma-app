@@ -294,8 +294,8 @@ if 'staff_registry' not in st.session_state:
 # --- [تعديل 3] حفظ إعدادات معادلة الخصم ---
 if 'deduction_settings' not in st.session_state:
     st.session_state['deduction_settings'] = {
-        "rate_per_minute": 125,   # IQD لكل دقيقة تأخير
-        "grace_minutes": 6,       # دقائق السماح
+        "rate_per_minute": 100,   # IQD لكل دقيقة تأخير
+        "grace_minutes": 5,       # دقائق السماح
     }
 
 STAFF_DATA = st.session_state['staff_registry']
@@ -774,6 +774,64 @@ elif st.session_state['role'] == "المدير":
                     st.cache_data.clear()
                     st.success(f"✅ تم إلغاء خصم {int(row['discount']):,} د.ع")
                     time.sleep(1); st.rerun()
+    # --- قسم مواقع الحضور ---
+    with st.expander("🗺️ مواقع حضور الموظفين"):
+        # فلترة سجلات الحضور التي تحتوي على موقع
+        if not df_raw.empty and 'الموقع الجغرافي' in df_raw.columns:
+            loc_rows = df_raw[
+                (df_raw['type'] == "حضور") &
+                (df_raw['الموقع الجغرافي'].str.strip() != "") &
+                (df_raw['الموقع الجغرافي'].notna())
+            ].copy()
+
+            if loc_rows.empty:
+                st.info("لا توجد بصمات مسجلة بموقع جغرافي بعد")
+            else:
+                # فلتر باسم الموظف
+                emp_filter = st.selectbox(
+                    "تصفية حسب الموظف:",
+                    ["الكل"] + list(STAFF_DATA.keys()),
+                    key="loc_filter"
+                )
+                if emp_filter != "الكل":
+                    loc_rows = loc_rows[loc_rows['name'] == emp_filter]
+
+                st.markdown(f"<div style='color:var(--text-muted);font-size:0.83rem;margin-bottom:0.5rem;'>إجمالي البصمات: {len(loc_rows)}</div>", unsafe_allow_html=True)
+
+                for _, row in loc_rows[::-1].iterrows():
+                    try:
+                        coords = str(row['الموقع الجغرافي']).strip()
+                        lat_v, lon_v = coords.split(",")
+                        maps_url = f"https://www.google.com/maps?q={lat_v.strip()},{lon_v.strip()}"
+
+                        st.markdown(f"""
+                        <div style="background:var(--bg-card2);border:1px solid var(--border);
+                            border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.5rem;
+                            direction:rtl;font-size:0.86rem;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                                <div style="color:var(--text-primary);">
+                                    👤 <b>{row['name']}</b> &nbsp;|&nbsp;
+                                    📅 {row['data']} &nbsp;|&nbsp;
+                                    🕐 {row['time']}
+                                </div>
+                                <a href="{maps_url}" target="_blank" style="
+                                    background:linear-gradient(135deg,#3b82f6,#6366f1);
+                                    color:#fff;text-decoration:none;border-radius:8px;
+                                    padding:0.3rem 0.85rem;font-size:0.8rem;font-weight:600;
+                                    white-space:nowrap;">
+                                    📍 فتح الموقع
+                                </a>
+                            </div>
+                            <div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.35rem;">
+                                إحداثيات: {lat_v.strip()}, {lon_v.strip()}
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    except:
+                        pass
+        else:
+            st.info("لا توجد بيانات موقع — تأكد أن الموظفين سجلوا الحضور مع تفعيل الموقع")
+
     if st.button("📊 عرض كشف الرواتب"):
         clean = df_raw[~df_raw['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"])]
         totals = clean.groupby('name')[['discount', 'overtime']].sum()
