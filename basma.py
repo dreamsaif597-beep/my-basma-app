@@ -294,8 +294,8 @@ if 'staff_registry' not in st.session_state:
 # --- [تعديل 3] حفظ إعدادات معادلة الخصم ---
 if 'deduction_settings' not in st.session_state:
     st.session_state['deduction_settings'] = {
-        "rate_per_minute": 125,   # IQD لكل دقيقة تأخير
-        "grace_minutes": 6,       # دقائق السماح
+        "rate_per_minute": 100,   # IQD لكل دقيقة تأخير
+        "grace_minutes": 5,       # دقائق السماح
     }
 
 STAFF_DATA = st.session_state['staff_registry']
@@ -303,14 +303,15 @@ STAFF_DATA = st.session_state['staff_registry']
 def get_iraq_time():
     return datetime.utcnow() + timedelta(hours=3)
 
-def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0):
+def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0, location=""):
     payload = {
         "entry.104291709": name,
         "entry.786801446": data_val,
         "entry.2093200411": time_val,
         "entry.1043553703": type_val,
         "entry.1254543219": int(discount),
-        "entry.1151470082": int(overtime)
+        "entry.1151470082": int(overtime),
+        "entry.669980309": location,
     }
     try: requests.post(FORM_URL, data=payload, timeout=7)
     except: st.error("فشل الاتصال بجوجل")
@@ -324,6 +325,11 @@ def fetch_and_clean_data():
             df[col] = df[col].fillna("").astype(str).str.strip()
         df['discount'] = pd.to_numeric(df['discount'], errors='coerce').fillna(0).astype(int)
         df['overtime'] = pd.to_numeric(df['overtime'], errors='coerce').fillna(0).astype(int)
+        # عمود الموقع اختياري — إذا ما موجود نضيف عمود فارغ
+        if 'الموقع الجغرافي' not in df.columns:
+            df['الموقع الجغرافي'] = ""
+        else:
+            df['الموقع الجغرافي'] = df['الموقع الجغرافي'].fillna("").astype(str).str.strip()
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
@@ -447,6 +453,67 @@ if st.session_state['role'] == "موظف":
         active_end   = emp['end']
         shift_choice = "الشفت الوحيد"
 
+    # --- مكوّن الموقع الجغرافي ---
+    geo_params = st.query_params
+    lat  = geo_params.get("lat", "")
+    lon  = geo_params.get("lon", "")
+    geo_status = geo_params.get("geo_status", "")
+
+    # حفظ الموقع في session_state فور وصوله حتى لا يضيع عند rerun
+    if lat and lon:
+        st.session_state['geo_lat'] = lat
+        st.session_state['geo_lon'] = lon
+    # استخدام المحفوظ إذا لم يكن في الـ params
+    lat = st.session_state.get('geo_lat', lat)
+    lon = st.session_state.get('geo_lon', lon)
+
+    # عرض حالة الموقع للمستخدم
+    if lat and lon:
+        st.caption(f"📍 موقعك محدد: {float(lat):.5f}, {float(lon):.5f}")
+    else:
+        st.caption("📍 الموقع الجغرافي: لم يُحدد بعد")
+
+    # زر JS يطلب الإذن ويعيد تحميل الصفحة مع الإحداثيات
+    st.components.v1.html(f"""
+    <script>
+    function getLocation() {{
+        if (!navigator.geolocation) {{
+            window.parent.location.href = window.parent.location.pathname + '?geo_status=unsupported';
+            return;
+        }}
+        navigator.geolocation.getCurrentPosition(
+            function(pos) {{
+                var lat = pos.coords.latitude.toFixed(6);
+                var lon = pos.coords.longitude.toFixed(6);
+                var url = window.parent.location.pathname + '?lat=' + lat + '&lon=' + lon + '&geo_status=ok';
+                window.parent.location.href = url;
+            }},
+            function(err) {{
+                window.parent.location.href = window.parent.location.pathname + '?geo_status=denied';
+            }},
+            {{enableHighAccuracy: true, timeout: 10000}}
+        );
+    }}
+    // تشغيل تلقائي عند فتح الصفحة إذا لم يكن الموقع محدداً
+    if ({'true' if not lat else 'false'}) {{
+        getLocation();
+    }}
+    </script>
+    <button onclick="getLocation()" style="
+        background:linear-gradient(135deg,#1a2235,#111827);
+        border:1px solid rgba(59,130,246,0.3);border-radius:8px;
+        color:#93c5fd;font-size:0.8rem;padding:0.3rem 0.9rem;
+        cursor:pointer;font-family:sans-serif;direction:rtl;
+        margin-bottom:4px;">
+        📡 تحديث الموقع
+    </button>
+    """, height=45)
+
+    if geo_status == "denied":
+        st.warning("⚠️ تم رفض إذن الموقع — سيُسجَّل الحضور بدون إحداثيات")
+    elif geo_status == "unsupported":
+        st.warning("⚠️ المتصفح لا يدعم تحديد الموقع")
+
     col_a, col_b = st.columns(2)
 
     if col_a.button("📥 تسجيل حضور"):
@@ -459,8 +526,11 @@ if st.session_state['role'] == "موظف":
             disc = int(late_mins * ds['rate_per_minute'])
         else:
             disc = 0
+
+        # الموقع يُرسل منفصلاً وليس مدموجاً في الملاحظة
+        geo_str = f"{lat},{lon}" if lat and lon else ""
         note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
-        send_to_google(name, note, c_time, "حضور", disc, 0)
+        send_to_google(name, note, c_time, "حضور", disc, 0, location=geo_str)
         st.cache_data.clear()
 
         # --- حفظ بيانات الرسالة في session_state لعرضها كـ popup ---
@@ -475,6 +545,8 @@ if st.session_state['role'] == "موظف":
             "shift_label": shift_label,
             "active_start": active_start,
             "late_mins": late_mins_rounded,
+            "lat": lat,
+            "lon": lon,
         }
 
     if col_b.button("📤 تسجيل انصراف"):
@@ -494,6 +566,7 @@ if st.session_state['role'] == "موظف":
 
         @st.dialog("📋 تفاصيل البصمة")
         def show_popup():
+            geo_line = f"📍 الموقع: <b>{p.get('lat','')}, {p.get('lon','')}</b><br>" if p.get('lat') else "📍 الموقع: <b style='color:#fbbf24;'>غير محدد</b><br>"
             if p['disc'] == 0:
                 st.markdown(f"""
                 <div style="text-align:right;direction:rtl;line-height:2.1;font-size:0.92rem;">
@@ -503,6 +576,7 @@ if st.session_state['role'] == "موظف":
                   🕐 وقت الحضور: <b>{p['c_time']}</b><br>
                   📌 الشفت: <b>{p['shift_label']}</b><br>
                   ⏰ وقت الدوام: <b>{p['active_start']}</b><br>
+                  {geo_line}
                   ✅ الحالة: <b style="color:#10b981;">في الوقت — لا يوجد خصم</b>
                 </div>
                 """, unsafe_allow_html=True)
@@ -514,6 +588,7 @@ if st.session_state['role'] == "موظف":
                   🕐 وقت الحضور الفعلي: <b>{p['c_time']}</b><br>
                   📌 الشفت: <b>{p['shift_label']}</b><br>
                   ⏰ وقت الدوام المقرر: <b>{p['active_start']}</b><br>
+                  {geo_line}
                   ⏱️ مدة التأخير: <b style="color:#fbbf24;">{p['late_mins']} دقيقة</b><br>
                   💸 خصم التأخير: <b style="color:#fca5a5;">{p['disc']:,} د.ع</b>
                 </div>
