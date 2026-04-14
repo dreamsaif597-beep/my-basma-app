@@ -588,12 +588,58 @@ elif st.session_state['role'] == "المدير":
     if st.button("📊 عرض كشف الرواتب"):
         clean = df_raw[~df_raw['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"])]
         totals = clean.groupby('name')[['discount', 'overtime']].sum()
+
+        # ملخص الرواتب
         res = []
         for n, info in STAFF_DATA.items():
             d = int(totals.loc[n, 'discount']) if n in totals.index else 0
             o = int(totals.loc[n, 'overtime']) if n in totals.index else 0
             res.append({"الموظف": n, "الراتب": info['salary'], "الخصم": d, "الإضافي": o, "الصافي": info['salary'] - d + o})
         st.table(pd.DataFrame(res))
+
+        # توقيتات الحضور الفعلية لكل موظف
+        st.markdown("### 🕐 توقيتات الحضور الفعلية")
+        attendance_rows = clean[clean['type'] == "حضور"][['name', 'data', 'time', 'discount']].copy()
+        attendance_rows.columns = ['الموظف', 'التاريخ', 'وقت الحضور', 'الخصم (د.ع)']
+
+        if not attendance_rows.empty:
+            # عرض مجمّع لكل موظف في expander منفصل
+            for emp_name in STAFF_DATA.keys():
+                emp_att = attendance_rows[attendance_rows['الموظف'] == emp_name].copy()
+                if not emp_att.empty:
+                    total_emp_disc = int(emp_att['الخصم (د.ع)'].sum())
+                    days_count = len(emp_att)
+                    with st.expander(f"👤 {emp_name}  —  {days_count} يوم  |  إجمالي خصم التأخير: {total_emp_disc:,} د.ع"):
+                        display_att = emp_att[['التاريخ', 'وقت الحضور', 'الخصم (د.ع)']].reset_index(drop=True)
+                        # إضافة عمود الحالة
+                        def status_label(row):
+                            emp_info = STAFF_DATA[emp_name]
+                            shift_note = str(row['التاريخ'])
+                            if emp_info['type'] == 'double':
+                                if 'الشفت الثاني' in shift_note:
+                                    expected = emp_info['s2']
+                                else:
+                                    expected = emp_info['s1']
+                            else:
+                                expected = emp_info['start']
+                            disc_val = int(row['الخصم (د.ع)'])
+                            if disc_val == 0:
+                                return "✅ في الوقت"
+                            else:
+                                # حساب دقائق التأخير
+                                try:
+                                    t_exp = datetime.strptime(expected, "%H:%M")
+                                    t_act = datetime.strptime(str(row['وقت الحضور']), "%H:%M")
+                                    late = int((t_act - t_exp).total_seconds() / 60)
+                                    return f"⚠️ متأخر {late} د"
+                                except:
+                                    return "⚠️ متأخر"
+                        display_att['الحالة'] = emp_att.apply(status_label, axis=1)
+                        st.table(display_att)
+                else:
+                    pass  # موظف بدون سجلات حضور لا يظهر
+        else:
+            st.info("لا توجد سجلات حضور في هذه الفترة")
 
     if st.button("🔄 تصفير الأسبوع"):
         send_to_google("نظام", "تصفير", "00:00", "تصفية أسبوعية", 0, 0)
