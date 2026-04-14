@@ -294,8 +294,8 @@ if 'staff_registry' not in st.session_state:
 # --- [تعديل 3] حفظ إعدادات معادلة الخصم ---
 if 'deduction_settings' not in st.session_state:
     st.session_state['deduction_settings'] = {
-        "rate_per_minute": 100,   # IQD لكل دقيقة تأخير
-        "grace_minutes": 5,       # دقائق السماح
+        "rate_per_minute": 125,   # IQD لكل دقيقة تأخير
+        "grace_minutes": 6,       # دقائق السماح
     }
 
 STAFF_DATA = st.session_state['staff_registry']
