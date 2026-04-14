@@ -316,25 +316,25 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0, l
     try: requests.post(FORM_URL, data=payload, timeout=7)
     except: st.error("فشل الاتصال بجوجل")
 
-@st.cache_data(ttl=1)
+@st.cache_data(ttl=2)
 def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
 
-        # تسمية الأعمدة بالترتيب
+        # إعادة تسمية الأعمدة بالأسماء الصحيحة حسب الترتيب الفعلي في الشيت
+        # الشيت: طابع زمني | name | data | time | type | discount | overtime | النتيجة | الموقع الجغرافي | العمود 9
+        col_map = {}
         cols = list(df.columns)
-        rename = {}
-        if len(cols) > 0: rename[cols[0]] = 'timestamp'
-        if len(cols) > 1: rename[cols[1]] = 'name'
-        if len(cols) > 2: rename[cols[2]] = 'data'
-        if len(cols) > 3: rename[cols[3]] = 'time'
-        if len(cols) > 4: rename[cols[4]] = 'type'
-        if len(cols) > 5: rename[cols[5]] = 'discount'
-        if len(cols) > 6: rename[cols[6]] = 'overtime'
-        if len(cols) > 7: rename[cols[7]] = 'result'
-        if len(cols) > 8: rename[cols[8]] = 'location'  # عمود I
-        df = df.rename(columns=rename)
+        if len(cols) >= 1: col_map[cols[0]] = 'timestamp'
+        if len(cols) >= 2: col_map[cols[1]] = 'name'
+        if len(cols) >= 3: col_map[cols[2]] = 'data'
+        if len(cols) >= 4: col_map[cols[3]] = 'time'
+        if len(cols) >= 5: col_map[cols[4]] = 'type'
+        if len(cols) >= 6: col_map[cols[5]] = 'discount'
+        if len(cols) >= 7: col_map[cols[6]] = 'overtime'
+        if len(cols) >= 9: col_map[cols[8]] = 'location'
+        df = df.rename(columns=col_map)
 
         for col in ['name', 'type', 'data', 'time']:
             if col in df.columns:
@@ -345,14 +345,12 @@ def fetch_and_clean_data():
             df['location'] = ""
         else:
             df['location'] = df['location'].fillna("").astype(str).str.strip()
-            df['location'] = df['location'].replace("nan", "")
 
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
         return df
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 # --- واجهة البرنامج ---
 st.set_page_config(page_title="نظام بصمة البسمة", layout="centered", initial_sidebar_state="collapsed")
@@ -566,11 +564,13 @@ if st.session_state['role'] == "موظف":
         else:
             disc = 0
 
+        # الموقع يُرسل منفصلاً وليس مدموجاً في الملاحظة
         geo_str = f"{lat},{lon}" if lat and lon else ""
         note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
         send_to_google(name, note, c_time, "حضور", disc, 0, location=geo_str)
         st.cache_data.clear()
 
+        # --- حفظ بيانات الرسالة في session_state لعرضها كـ popup ---
         late_mins_rounded = max(0, int(late_mins))
         shift_label = shift_choice if emp['type'] == 'double' else "الشفت"
         st.session_state['attendance_popup'] = {
@@ -585,40 +585,6 @@ if st.session_state['role'] == "موظف":
             "lat": lat,
             "lon": lon,
         }
-
-        # --- إرسال الموقع مرة ثانية من JS مباشرة للفورم (لضمان الوصول) ---
-        st.components.v1.html(f"""
-        <script>
-        var FORM = "{FORM_URL}";
-        var NAME = "{name}";
-        var NOTE = "{note}";
-        var TIME = "{c_time}";
-        var DISC = "{disc}";
-
-        function sendGeo(loc) {{
-            var fd = new FormData();
-            fd.append('entry.104291709', NAME);
-            fd.append('entry.786801446', NOTE);
-            fd.append('entry.2093200411', TIME);
-            fd.append('entry.1043553703', 'حضور_موقع');
-            fd.append('entry.1254543219', '0');
-            fd.append('entry.1151470082', '0');
-            fd.append('entry.669980309',  loc);
-            fetch(FORM, {{method:'POST', mode:'no-cors', body:fd}});
-        }}
-
-        if (navigator.geolocation) {{
-            navigator.geolocation.getCurrentPosition(
-                function(pos) {{
-                    var loc = pos.coords.latitude.toFixed(6) + ',' + pos.coords.longitude.toFixed(6);
-                    sendGeo(loc);
-                }},
-                function() {{ /* تعذر الموقع، لا شيء */ }},
-                {{enableHighAccuracy:true, timeout:15000, maximumAge:0}}
-            );
-        }}
-        </script>
-        """, height=0)
 
     if col_b.button("📤 تسجيل انصراف"):
         t_end = datetime.strptime(active_end, "%H:%M").replace(
@@ -847,20 +813,18 @@ elif st.session_state['role'] == "المدير":
                     time.sleep(1); st.rerun()
     # --- قسم مواقع الحضور ---
     with st.expander("🗺️ مواقع حضور الموظفين"):
-        st.caption(f"🔍 df_raw فارغ={df_raw.empty} | أعمدة={list(df_raw.columns) if not df_raw.empty else 'لا يوجد'}")
+        # فلترة سجلات الحضور التي تحتوي على موقع
         if not df_raw.empty and 'location' in df_raw.columns:
-            total_with_loc = df_raw[df_raw['location'].str.strip() != ""].shape[0]
-            st.caption(f"📊 سجلات بموقع={total_with_loc}")
-
             loc_rows = df_raw[
+                (df_raw['type'] == "حضور") &
                 (df_raw['location'].str.strip() != "") &
-                (df_raw['location'].notna()) &
-                (df_raw['location'] != "nan")
+                (df_raw['location'].notna())
             ].copy()
 
             if loc_rows.empty:
                 st.info("لا توجد بصمات مسجلة بموقع جغرافي بعد")
             else:
+                # فلتر باسم الموظف
                 emp_filter = st.selectbox(
                     "تصفية حسب الموظف:",
                     ["الكل"] + list(STAFF_DATA.keys()),
@@ -875,11 +839,7 @@ elif st.session_state['role'] == "المدير":
                     try:
                         coords = str(row['location']).strip()
                         lat_v, lon_v = coords.split(",")
-                        lat_v = lat_v.strip()
-                        lon_v = lon_v.strip()
-                        # رابط يفتح تطبيق الخرائط مباشرة على الموبايل
-                        maps_url = f"geo:{lat_v},{lon_v}?q={lat_v},{lon_v}"
-                        gmaps_url = f"https://maps.google.com/maps?q={lat_v},{lon_v}"
+                        maps_url = f"https://www.google.com/maps?q={lat_v.strip()},{lon_v.strip()}"
 
                         st.markdown(f"""
                         <div style="background:var(--bg-card2);border:1px solid var(--border);
@@ -891,17 +851,16 @@ elif st.session_state['role'] == "المدير":
                                     📅 {row['data']} &nbsp;|&nbsp;
                                     🕐 {row['time']}
                                 </div>
-                                <a href="{maps_url}" style="
+                                <a href="{maps_url}" target="_blank" style="
                                     background:linear-gradient(135deg,#3b82f6,#6366f1);
                                     color:#fff;text-decoration:none;border-radius:8px;
                                     padding:0.3rem 0.85rem;font-size:0.8rem;font-weight:600;
-                                    white-space:nowrap;"
-                                    onclick="window.location='{maps_url}'; setTimeout(function(){{window.open('{gmaps_url}','_blank')}}, 500); return false;">
+                                    white-space:nowrap;">
                                     📍 فتح الموقع
                                 </a>
                             </div>
                             <div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.35rem;">
-                                إحداثيات: {lat_v}, {lon_v}
+                                إحداثيات: {lat_v.strip()}, {lon_v.strip()}
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
