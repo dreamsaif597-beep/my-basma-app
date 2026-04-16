@@ -333,7 +333,8 @@ def fetch_and_clean_data():
         if len(cols) >= 5: col_map[cols[4]] = 'type'
         if len(cols) >= 6: col_map[cols[5]] = 'discount'
         if len(cols) >= 7: col_map[cols[6]] = 'overtime'
-        if len(cols) >= 9: col_map[cols[8]] = 'location'
+        if len(cols) > 7: col_map[cols[7]] = 'result'
+        if len(cols) > 8: col_map[cols[8]] = 'location'
         df = df.rename(columns=col_map)
 
         for col in ['name', 'type', 'data', 'time']:
@@ -345,6 +346,7 @@ def fetch_and_clean_data():
             df['location'] = ""
         else:
             df['location'] = df['location'].fillna("").astype(str).str.strip()
+            df['location'] = df['location'].replace("nan", "")
 
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
@@ -429,31 +431,8 @@ if st.session_state['role'] == "موظف":
     st.markdown(f"""
     <div class="main-header">
         <h2>👋 أهلاً، {name}</h2>
-        <p id="live-clock" style="font-size:1rem;font-weight:600;color:#93c5fd;letter-spacing:0.05em;">
-            {now.strftime("%A")} — {c_date} — {c_time}
-        </p>
+        <p>{now.strftime("%A")} — {c_date} — {c_time}</p>
     </div>
-    <script>
-    (function() {{
-        function getIraqTime() {{
-            var now = new Date();
-            var iraq = new Date(now.getTime() + (3 * 60 * 60 * 1000));
-            return iraq;
-        }}
-        var days = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-        function pad(n) {{ return n < 10 ? '0'+n : n; }}
-        function tick() {{
-            var t = getIraqTime();
-            var day   = days[t.getUTCDay()];
-            var date  = t.getUTCFullYear()+'-'+pad(t.getUTCMonth()+1)+'-'+pad(t.getUTCDate());
-            var clock = pad(t.getUTCHours())+':'+pad(t.getUTCMinutes())+':'+pad(t.getUTCSeconds());
-            var el = document.getElementById('live-clock');
-            if (el) el.innerText = day + ' — ' + date + ' — ' + clock;
-        }}
-        tick();
-        setInterval(tick, 1000);
-    }})();
-    </script>
     """, unsafe_allow_html=True)
 
     df = fetch_and_clean_data()
@@ -573,22 +552,6 @@ if st.session_state['role'] == "موظف":
         st.warning("⚠️ تم رفض إذن الموقع — سيُسجَّل الحضور بدون إحداثيات")
     elif geo_err == "unsupported":
         st.warning("⚠️ المتصفح لا يدعم تحديد الموقع")
-
-    # طلب الموقع في الخلفية فور فتح الصفحة
-    st.components.v1.html(f"""
-    <script>
-    if (navigator.geolocation) {{{{
-        navigator.geolocation.getCurrentPosition(
-            function(p) {{{{
-                var loc = p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);
-                try {{ localStorage.setItem('basma_loc_{name}', loc); }} catch(e) {{}}
-            }}}},
-            function() {{{{}}}},
-            {{{{enableHighAccuracy:true, timeout:15000, maximumAge:30000}}}}
-        );
-    }}}}
-    </script>
-    """, height=0)
 
     col_a, col_b = st.columns(2)
 
@@ -855,10 +818,9 @@ elif st.session_state['role'] == "المدير":
         # فلترة سجلات الحضور التي تحتوي على موقع
         if not df_raw.empty and 'location' in df_raw.columns:
             loc_rows = df_raw[
-                (df_raw['type'] == "حضور_موقع") &
+                (df_raw['type'] == "حضور") &
                 (df_raw['location'].str.strip() != "") &
-                (df_raw['location'].notna()) &
-                (df_raw['location'] != "nan")
+                (df_raw['location'].notna())
             ].copy()
 
             if loc_rows.empty:
@@ -879,9 +841,8 @@ elif st.session_state['role'] == "المدير":
                     try:
                         coords = str(row['location']).strip()
                         lat_v, lon_v = coords.split(",")
-                        lat_v = lat_v.strip()
-                        lon_v = lon_v.strip()
-                        maps_url = f"https://maps.google.com/maps?q={lat_v},{lon_v}&ll={lat_v},{lon_v}&z=17"
+                        maps_url = f"https://www.google.com/maps?q={lat_v.strip()},{lon_v.strip()}"
+
                         st.markdown(f"""
                         <div style="background:var(--bg-card2);border:1px solid var(--border);
                             border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.5rem;
@@ -901,7 +862,7 @@ elif st.session_state['role'] == "المدير":
                                 </a>
                             </div>
                             <div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.35rem;">
-                                إحداثيات: {lat_v}, {lon_v}
+                                إحداثيات: {lat_v.strip()}, {lon_v.strip()}
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
