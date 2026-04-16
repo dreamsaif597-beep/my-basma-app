@@ -321,18 +321,21 @@ def fetch_and_clean_data():
     try:
         df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
         df.columns = [c.strip() for c in df.columns]
+
+        # إعادة تسمية الأعمدة بالأسماء الصحيحة حسب الترتيب الفعلي في الشيت
+        # الشيت: طابع زمني | name | data | time | type | discount | overtime | النتيجة | الموقع الجغرافي | العمود 9
+        col_map = {}
         cols = list(df.columns)
-        rename = {}
-        if len(cols) > 0: rename[cols[0]] = 'timestamp'
-        if len(cols) > 1: rename[cols[1]] = 'name'
-        if len(cols) > 2: rename[cols[2]] = 'data'
-        if len(cols) > 3: rename[cols[3]] = 'time'
-        if len(cols) > 4: rename[cols[4]] = 'type'
-        if len(cols) > 5: rename[cols[5]] = 'discount'
-        if len(cols) > 6: rename[cols[6]] = 'overtime'
-        if len(cols) > 7: rename[cols[7]] = 'result'
-        if len(cols) > 8: rename[cols[8]] = 'location'  # عمود I
-        df = df.rename(columns=rename)
+        if len(cols) >= 1: col_map[cols[0]] = 'timestamp'
+        if len(cols) >= 2: col_map[cols[1]] = 'name'
+        if len(cols) >= 3: col_map[cols[2]] = 'data'
+        if len(cols) >= 4: col_map[cols[3]] = 'time'
+        if len(cols) >= 5: col_map[cols[4]] = 'type'
+        if len(cols) >= 6: col_map[cols[5]] = 'discount'
+        if len(cols) >= 7: col_map[cols[6]] = 'overtime'
+        if len(cols) >= 9: col_map[cols[8]] = 'location'
+        df = df.rename(columns=col_map)
+
         for col in ['name', 'type', 'data', 'time']:
             if col in df.columns:
                 df[col] = df[col].fillna("").astype(str).str.strip()
@@ -342,7 +345,7 @@ def fetch_and_clean_data():
             df['location'] = ""
         else:
             df['location'] = df['location'].fillna("").astype(str).str.strip()
-            df['location'] = df['location'].replace("nan", "")
+
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
             df = df.iloc[resets.max() + 1:].reset_index(drop=True)
@@ -466,49 +469,79 @@ if st.session_state['role'] == "موظف":
         active_end   = emp['end']
         shift_choice = "الشفت الوحيد"
 
+    # --- طلب الموقع في الخلفية فور فتح الصفحة ---
+    st.components.v1.html(f"""
+    <script>
+    if (navigator.geolocation) {{
+        navigator.geolocation.getCurrentPosition(
+            function(p) {{
+                var loc = p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);
+                try {{ localStorage.setItem('basma_loc_{name}', loc); }} catch(e) {{}}
+            }},
+            function() {{}},
+            {{enableHighAccuracy:true, timeout:15000, maximumAge:30000}}
+        );
+    }}
+    </script>
+    """, height=0)
+
     col_a, col_b = st.columns(2)
 
     if col_a.button("📥 تسجيل حضور"):
+        # الوقت الفعلي لحظة الضغط
+        now_press = get_iraq_time()
+        c_time_press = now_press.strftime("%H:%M:%S")
         ds = st.session_state['deduction_settings']
         t_start = datetime.strptime(active_start, "%H:%M").replace(
-            year=now.year, month=now.month, day=now.day
+            year=now_press.year, month=now_press.month, day=now_press.day
         )
-        late_mins = (now - t_start).total_seconds() / 60
+        late_mins = (now_press - t_start).total_seconds() / 60
         disc = int(late_mins * ds['rate_per_minute']) if late_mins > ds['grace_minutes'] else 0
         note = f"{c_date}" if emp['type'] == 'single' else f"{c_date} ({shift_choice})"
-        send_to_google(name, note, c_time, "حضور", disc, 0, location="")
+        send_to_google(name, note, c_time_press, "حضور", disc, 0, location="")
         st.cache_data.clear()
 
         late_mins_rounded = max(0, int(late_mins))
         shift_label = shift_choice if emp['type'] == 'double' else "الشفت"
         st.session_state['attendance_popup'] = {
             "show": True, "disc": disc, "name": name,
-            "c_date": c_date, "c_time": c_time,
+            "c_date": c_date, "c_time": c_time_press,
             "shift_label": shift_label, "active_start": active_start,
-            "late_mins": late_mins_rounded, "lat": "", "lon": "",
+            "late_mins": late_mins_rounded,
         }
 
-        # JS يرسل الموقع مباشرة للفورم بدون المرور على Python
+        # JS يقرأ الموقع من localStorage ويرسله للفورم
         st.components.v1.html(f"""
         <script>
-        function sendLocation(loc) {{
-            var fd = new FormData();
-            fd.append('entry.104291709', '{name}');
-            fd.append('entry.786801446', '{note}');
-            fd.append('entry.2093200411', '{c_time}');
-            fd.append('entry.1043553703', 'حضور_موقع');
-            fd.append('entry.1254543219', '0');
-            fd.append('entry.1151470082', '0');
-            fd.append('entry.669980309',  loc);
-            fetch('{FORM_URL}', {{method:'POST', mode:'no-cors', body:fd}});
-        }}
-        if (navigator.geolocation) {{
-            navigator.geolocation.getCurrentPosition(
-                function(p) {{ sendLocation(p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6)); }},
-                function() {{}},
-                {{enableHighAccuracy:true, timeout:15000, maximumAge:0}}
-            );
-        }}
+        (function() {{
+            var FORM = '{FORM_URL}';
+            function send(loc) {{
+                var fd = new FormData();
+                fd.append('entry.104291709', '{name}');
+                fd.append('entry.786801446', '{note}');
+                fd.append('entry.2093200411', '{c_time_press}');
+                fd.append('entry.1043553703', 'حضور_موقع');
+                fd.append('entry.1254543219', '0');
+                fd.append('entry.1151470082', '0');
+                fd.append('entry.669980309', loc);
+                fetch(FORM, {{method:'POST', mode:'no-cors', body:fd}});
+            }}
+            var saved = '';
+            try {{ saved = localStorage.getItem('basma_loc_{name}') || ''; }} catch(e) {{}}
+            if (saved) {{
+                send(saved);
+            }} else if (navigator.geolocation) {{
+                navigator.geolocation.getCurrentPosition(
+                    function(p) {{
+                        var loc = p.coords.latitude.toFixed(6)+','+p.coords.longitude.toFixed(6);
+                        try {{ localStorage.setItem('basma_loc_{name}', loc); }} catch(e) {{}}
+                        send(loc);
+                    }},
+                    function() {{ send(''); }},
+                    {{enableHighAccuracy:true, timeout:15000, maximumAge:0}}
+                );
+            }}
+        }})();
         </script>
         """, height=0)
 
@@ -739,17 +772,18 @@ elif st.session_state['role'] == "المدير":
                     time.sleep(1); st.rerun()
     # --- قسم مواقع الحضور ---
     with st.expander("🗺️ مواقع حضور الموظفين"):
+        # فلترة سجلات الحضور التي تحتوي على موقع
         if not df_raw.empty and 'location' in df_raw.columns:
             loc_rows = df_raw[
-                (df_raw['type'] == "حضور_موقع") &
+                (df_raw['type'] == "حضور") &
                 (df_raw['location'].str.strip() != "") &
-                (df_raw['location'].notna()) &
-                (df_raw['location'] != "nan")
+                (df_raw['location'].notna())
             ].copy()
 
             if loc_rows.empty:
                 st.info("لا توجد بصمات مسجلة بموقع جغرافي بعد")
             else:
+                # فلتر باسم الموظف
                 emp_filter = st.selectbox(
                     "تصفية حسب الموظف:",
                     ["الكل"] + list(STAFF_DATA.keys()),
@@ -764,9 +798,7 @@ elif st.session_state['role'] == "المدير":
                     try:
                         coords = str(row['location']).strip()
                         lat_v, lon_v = coords.split(",")
-                        lat_v = lat_v.strip()
-                        lon_v = lon_v.strip()
-                        maps_url = f"https://maps.google.com/maps?q={lat_v},{lon_v}&ll={lat_v},{lon_v}&z=17"
+                        maps_url = f"https://www.google.com/maps?q={lat_v.strip()},{lon_v.strip()}"
 
                         st.markdown(f"""
                         <div style="background:var(--bg-card2);border:1px solid var(--border);
@@ -787,7 +819,7 @@ elif st.session_state['role'] == "المدير":
                                 </a>
                             </div>
                             <div style="color:var(--text-muted);font-size:0.78rem;margin-top:0.35rem;">
-                                إحداثيات: {lat_v}, {lon_v}
+                                إحداثيات: {lat_v.strip()}, {lon_v.strip()}
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
