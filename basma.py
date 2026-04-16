@@ -909,6 +909,8 @@ elif st.session_state['role'] == "المدير":
                         pass
         else:
             st.info("لا توجد بيانات موقع — تأكد أن الموظفين سجلوا الحضور مع تفعيل الموقع")
+
+    if st.button("📊 عرض كشف الرواتب"):
         clean = df_raw[~df_raw['type'].isin(["طلب إجازة", "طلب سلفة", "مؤرشف"])]
         totals = clean.groupby('name')[['discount', 'overtime']].sum()
 
