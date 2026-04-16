@@ -421,13 +421,39 @@ if st.session_state['role'] == "موظف":
     name = st.session_state['user']
     emp = STAFF_DATA[name]
     now = get_iraq_time()
-    c_date, c_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M")
+    c_date = now.strftime("%Y-%m-%d")
+    c_time = now.strftime("%H:%M:%S")
 
+    # الهيدر مع ساعة حية بـ JS
     st.markdown(f"""
     <div class="main-header">
         <h2>👋 أهلاً، {name}</h2>
-        <p>{now.strftime("%A")} — {c_date} — {c_time}</p>
+        <p id="live-clock" style="font-size:1rem;font-weight:600;color:#93c5fd;letter-spacing:0.05em;">
+            {now.strftime("%A")} — {c_date} — {c_time}
+        </p>
     </div>
+    <script>
+    (function() {{
+        function getIraqTime() {{
+            var now = new Date();
+            // توقيت العراق UTC+3
+            var iraq = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+            return iraq;
+        }}
+        var days = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+        function pad(n) {{ return n < 10 ? '0'+n : n; }}
+        function tick() {{
+            var t = getIraqTime();
+            var day   = days[t.getUTCDay()];
+            var date  = t.getUTCFullYear()+'-'+pad(t.getUTCMonth()+1)+'-'+pad(t.getUTCDate());
+            var clock = pad(t.getUTCHours())+':'+pad(t.getUTCMinutes())+':'+pad(t.getUTCSeconds());
+            var el = document.getElementById('live-clock');
+            if (el) el.innerText = day + ' — ' + date + ' — ' + clock;
+        }}
+        tick();
+        setInterval(tick, 1000);
+    }})();
+    </script>
     """, unsafe_allow_html=True)
 
     df = fetch_and_clean_data()
