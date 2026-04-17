@@ -333,8 +333,7 @@ def fetch_and_clean_data():
         if len(cols) >= 5: col_map[cols[4]] = 'type'
         if len(cols) >= 6: col_map[cols[5]] = 'discount'
         if len(cols) >= 7: col_map[cols[6]] = 'overtime'
-        if len(cols) > 7: col_map[cols[7]] = 'result'
-        if len(cols) > 8: col_map[cols[8]] = 'location'
+        if len(cols) >= 9: col_map[cols[8]] = 'location'
         df = df.rename(columns=col_map)
 
         for col in ['name', 'type', 'data', 'time']:
@@ -346,7 +345,6 @@ def fetch_and_clean_data():
             df['location'] = ""
         else:
             df['location'] = df['location'].fillna("").astype(str).str.strip()
-            df['location'] = df['location'].replace("nan", "")
 
         resets = df[df['type'] == "تصفية أسبوعية"].index
         if not resets.empty:
