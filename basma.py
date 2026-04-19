@@ -153,7 +153,7 @@ if 'staff_registry' not in st.session_state:
     }
 
 if 'deduction_settings' not in st.session_state:
-    st.session_state['deduction_settings'] = {"rate_per_minute": 100, "grace_minutes": 5}
+    st.session_state['deduction_settings'] = {"rate_per_minute": 125, "grace_minutes": 6}
 
 STAFF_DATA = st.session_state['staff_registry']
 
