@@ -153,7 +153,7 @@ if 'staff_registry' not in st.session_state:
     }
 
 if 'deduction_settings' not in st.session_state:
-    st.session_state['deduction_settings'] = {"rate_per_minute": 125, "grace_minutes": 6}
+    st.session_state['deduction_settings'] = {"rate_per_minute": 100, "grace_minutes": 5}
 
 STAFF_DATA = st.session_state['staff_registry']
 
@@ -173,10 +173,10 @@ def send_to_google(name, data_val, time_val, type_val, discount=0, overtime=0, l
     try: requests.post(FORM_URL, data=payload, timeout=7)
     except: st.error("فشل الاتصال بجوجل")
 
-@st.cache_data(ttl=2)
+@st.cache_data(ttl=10, show_spinner="جاري تحديث البيانات...")
 def fetch_and_clean_data():
     try:
-        df = pd.read_csv(f"{SHEET_CSV_URL}&nocache={time.time()}")
+        df = pd.read_csv(SHEET_CSV_URL)
         df.columns = [c.strip() for c in df.columns]
         col_map = {}
         cols = list(df.columns)
